@@ -1,0 +1,19 @@
+{
+  "name": "retailflow-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "retailflow",
+    "database.password": "retailflow",
+
+    "database.dbname": "retailflow",
+    "topic.prefix": "retailflow",
+    "plugin.name": "pgoutput",
+    "slot.name": "retailflow_debezium",
+    "publication.autocreate.mode": "filtered",
+    "table.include.list": "public.orders_order,public.orders_orderline,public.inventory_inventorybalance",
+    "tombstones.on.delete": "false"
+  }
+}
+

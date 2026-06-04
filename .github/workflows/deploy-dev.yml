@@ -1,0 +1,11 @@
+name: Deploy Dev
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Deployment is intentionally manual until AWS account, region, and cluster target are confirmed."
+
