@@ -32,7 +32,16 @@ def build_consumer():
 
 def main():
     consumer = build_consumer()
-    consumer.subscribe(["retailflow.public.orders_order"])
+    topics = [
+        topic.strip()
+        for topic in os.getenv(
+            "KAFKA_CONSUMER_TOPICS",
+            "retailflow.public.orders_order,retailflow.direct.order_signals",
+        ).split(",")
+        if topic.strip()
+    ]
+    consumer.subscribe(topics)
+    print(f"Subscribed to Kafka topics: {topics}")
     try:
         while running:
             message = consumer.poll(1.0)
@@ -51,4 +60,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

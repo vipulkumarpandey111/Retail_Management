@@ -11,11 +11,13 @@ At this stage, it can:
 - Run PostgreSQL, Redis, Kafka, Zookeeper, and Kafka Connect with Debezium through Docker Compose.
 - Run a Django REST API locally.
 - Persist retail data in PostgreSQL.
+- Use Redis as a Django cache.
 - Create orders through an API endpoint.
 - Trigger a Celery task through Redis after an order is committed.
 - Update the order status asynchronously.
+- Publish application events directly from Django to Kafka.
 - Stream PostgreSQL table changes into Kafka through Debezium CDC.
-- Run a Python Kafka consumer that reads the Debezium-generated order topic.
+- Run a Python Kafka consumer that reads both direct Kafka events and Debezium-generated CDC topics.
 
 The current project is intentionally local-first. AWS, Kubernetes, and CI/CD are planned, but not yet the active runtime path.
 
@@ -26,23 +28,27 @@ flowchart LR
     Client["API Client / PowerShell"] --> API["Django REST API"]
     API --> PG["PostgreSQL"]
     API --> Redis["Redis"]
+    API --> DirectKafka["Direct Kafka Topic"]
     Redis --> Celery["Celery Worker"]
     Celery --> PG
     PG --> Debezium["Kafka Connect + Debezium"]
-    Debezium --> Kafka["Kafka Topic"]
-    Kafka --> Consumer["Python Kafka Consumer"]
+    Debezium --> CDCKafka["CDC Kafka Topic"]
+    DirectKafka --> Consumer["Python Kafka Consumer"]
+    CDCKafka --> Consumer
 ```
 
 In plain English:
 
 1. You call the Django API.
 2. Django writes business data into PostgreSQL.
-3. Django schedules async work through Celery.
-4. Redis acts as the Celery message broker.
-5. Celery picks up the task and updates the order.
-6. Debezium watches PostgreSQL committed changes.
-7. Debezium publishes those changes into Kafka.
-8. The Kafka consumer reads the order-change topic.
+3. Django can read/write Redis cache for fast temporary data.
+4. Django can publish selected application events directly to Kafka.
+5. Django schedules async work through Celery.
+6. Redis acts as the Celery message broker.
+7. Celery picks up the task and updates the order.
+8. Debezium watches PostgreSQL committed changes.
+9. Debezium publishes those changes into Kafka.
+10. The Kafka consumer reads both direct events and database-change events.
 
 ## 3. Repository Layout
 
@@ -149,7 +155,10 @@ This enables logical replication, which Debezium needs to read committed databas
 
 ### Redis
 
-Redis is currently used as the Celery broker and result backend.
+Redis is currently used in two ways:
+
+- Celery broker/result backend.
+- Django cache backend.
 
 Configured in:
 
@@ -165,12 +174,30 @@ CELERY_BROKER_URL = redis://localhost:6379/0
 CELERY_RESULT_BACKEND = redis://localhost:6379/1
 ```
 
+Important cache setting:
+
+```python
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": "redis://localhost:6379/2",
+    }
+}
+```
+
+Database usage split:
+
+- Redis DB `0`: Celery broker.
+- Redis DB `1`: Celery results.
+- Redis DB `2`: Django cache.
+
 Role in the flow:
 
 - Django creates a Celery task message.
 - Redis stores that message.
 - Celery worker consumes the message.
 - Celery executes the background job.
+- Django can store short-lived cache values independently of Celery.
 
 ### Celery
 
@@ -243,13 +270,22 @@ Why two listeners?
 - `kafka:29092` is used by other containers in the Docker network.
 - `localhost:9092` is used by programs running on your laptop, like `workers/kafka_consumer/main.py`.
 
-Kafka topic currently used by the consumer:
+Kafka topics currently used by the consumer:
 
 ```text
 retailflow.public.orders_order
+retailflow.direct.order_signals
 ```
 
-This topic is created by Debezium when it sees changes to the `orders_order` table.
+Topic meanings:
+
+- `retailflow.public.orders_order`: created by Debezium from PostgreSQL CDC.
+- `retailflow.direct.order_signals`: receives direct application-published events from Django.
+
+This gives two learning paths:
+
+- CDC path: database change -> Debezium -> Kafka.
+- Direct path: application code -> Kafka.
 
 ### Zookeeper
 
@@ -446,6 +482,24 @@ Future responsibility:
 - Reject orders if stock is not available.
 - Emit notification/report events.
 
+### `backend/apps/events/views.py`
+
+Owns infrastructure learning endpoints.
+
+Current responsibility:
+
+- `CacheProbeView`: reads and writes a Redis-backed Django cache key.
+- `DirectEventPublishView`: accepts a small JSON payload and publishes it directly to Kafka.
+
+### `backend/apps/events/kafka.py`
+
+Owns direct Kafka producer behavior.
+
+Current responsibility:
+
+- Create a Kafka producer using `KAFKA_BOOTSTRAP_SERVERS`.
+- Publish JSON messages to `KAFKA_DIRECT_TOPIC`.
+
 ### `backend/retailflow/settings.py`
 
 Owns application configuration.
@@ -456,6 +510,8 @@ Current responsibility:
 - Configure PostgreSQL.
 - Configure Django REST Framework.
 - Configure Celery broker/result backend.
+- Configure Redis cache.
+- Configure direct Kafka producer settings.
 
 ### `backend/retailflow/celery.py`
 
@@ -475,6 +531,7 @@ Current responsibility:
 
 - Connect to Kafka at `localhost:9092`.
 - Subscribe to `retailflow.public.orders_order`.
+- Subscribe to `retailflow.direct.order_signals`.
 - Poll messages.
 - Print the Debezium payload.
 - Commit offsets manually after processing.
@@ -489,12 +546,14 @@ Read these in this order:
 4. `backend/retailflow/celery.py`
 5. `backend/apps/orders/serializers.py`
 6. `backend/apps/orders/tasks.py`
-7. `infra/docker-compose/debezium-postgres.json`
-8. `workers/kafka_consumer/main.py`
+7. `backend/apps/events/views.py`
+8. `backend/apps/events/kafka.py`
+9. `infra/docker-compose/debezium-postgres.json`
+10. `workers/kafka_consumer/main.py`
 
 This order mirrors the real runtime flow:
 
-Infrastructure -> environment -> Django config -> business write -> async task -> CDC -> event consumer.
+Infrastructure -> environment -> Django config -> Redis cache -> direct Kafka -> business write -> async task -> CDC -> event consumer.
 
 ## 9. Commands Run So Far
 
@@ -642,6 +701,42 @@ Invoke-RestMethod "http://localhost:8000/health/"
 Invoke-RestMethod "http://localhost:8000/api/inventory/balances/"
 ```
 
+### Redis Cache Probe
+
+```powershell
+Invoke-RestMethod "http://localhost:8000/api/events/cache-probe/"
+```
+
+Expected behavior:
+
+- Response `cache_value` increases on each request.
+- Value is stored in Redis DB `2`.
+- Value expires after 300 seconds.
+
+### Publish Direct Kafka Event
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  payload = @{
+    order_id = 101
+    store_code = "BLR-001"
+    signal = "manual-direct-kafka-test"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/direct-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Expected behavior:
+
+- API returns HTTP `202`.
+- Kafka consumer prints a message from `retailflow.direct.order_signals`.
+
 ### Create Order
 
 ```powershell
@@ -700,6 +795,33 @@ Meaning:
 
 - The consumer listens to one Debezium-created topic.
 - Topic name follows `topic.prefix.schema.table`.
+
+Current project version subscribes to multiple topics:
+
+```python
+consumer.subscribe(["retailflow.public.orders_order", "retailflow.direct.order_signals"])
+```
+
+Meaning:
+
+- One consumer can observe both CDC events and direct app-published events.
+- This makes the difference between the two event styles visible while running locally.
+
+### Direct Kafka Producer
+
+In `backend/apps/events/kafka.py`:
+
+```python
+producer = Producer({"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS})
+producer.produce(topic, key=event_type, value=json_payload)
+producer.flush(10)
+```
+
+Meaning:
+
+- Django creates a producer connected to Kafka.
+- `produce` queues the message for the configured topic.
+- `flush` waits briefly so the local demo can confirm delivery immediately.
 
 ### Polling Messages
 
@@ -798,55 +920,68 @@ Current limitations:
 
 ## 14. Next Recommended Steps
 
-The next steps should build on the local loop you already verified.
+The next steps should prioritize infrastructure integrations while keeping business logic minimal.
 
-### Step 1: Add Seed Command
+### Step 1: Add Repeatable Infra Demos
+
+Add small endpoints and scripts that exercise one tool at a time:
+
+- Redis cache probe.
+- Direct Kafka publisher.
+- Celery task trigger.
+- Debezium connector status check.
+- Kafka topic inspection commands.
+
+Why:
+
+- Makes each infrastructure component observable in isolation.
+
+### Step 2: Add Seed Command
 
 Create a repeatable Django management command that inserts a store, warehouse, SKU, and inventory balance.
 
 Why:
 
 - Avoid manual shell setup.
-- Make tests and demos repeatable.
+- Make demos repeatable.
 
-### Step 2: Implement Real Allocation Logic
+### Step 3: Make Business Logic Just Real Enough
 
-Update Celery order processing so it:
+Keep order processing minimal but realistic:
 
 - Reads requested order lines.
 - Finds available inventory.
-- Reserves stock.
+- Optionally reserves stock.
 - Sets order to `allocated` or `rejected`.
 
 Why:
 
-- This turns the project from infrastructure demo into business logic.
-
-### Step 3: Add Tests
-
-Add tests for:
-
-- Order creation.
-- Async task behavior.
-- Inventory reservation.
-- Duplicate idempotency key behavior.
-
-Why:
-
-- This prepares the project for CI/CD.
+- Gives Redis, Celery, Kafka, and CDC meaningful events without over-investing in business complexity.
 
 ### Step 4: Improve Kafka Consumer Behavior
 
-Move from printing events to meaningful processing.
+Move from printing events to simple event routing.
 
 Possible behavior:
 
-- Store consumed events.
-- Publish selected events to SQS later.
-- Call an internal API endpoint later.
-- Add retry and dead-letter behavior.
+- If topic is `retailflow.direct.order_signals`, store an `EventLog`.
+- If topic is `retailflow.public.orders_order`, normalize the Debezium payload.
+- Later, publish selected events to SQS.
 
-### Step 5: Dockerize Application Services
+### Step 5: Add Tests For Infra Integration Boundaries
+
+Add focused tests for:
+
+- Cache endpoint contract.
+- Direct Kafka producer wrapper with mocked producer.
+- Celery task behavior.
+- API order creation.
+
+Why:
+
+- Keeps CI practical without requiring Kafka in every unit test.
+
+### Step 6: Dockerize Application Services
 
 Add Dockerfiles for:
 
@@ -858,7 +993,7 @@ Why:
 
 - Required before Docker Compose EC2 deployment and Kubernetes.
 
-### Step 6: Add Local Kubernetes Manifests
+### Step 7: Add Local Kubernetes Manifests
 
 Use Docker Desktop Kubernetes for:
 
@@ -870,7 +1005,7 @@ Use Docker Desktop Kubernetes for:
 
 PostgreSQL can initially remain local/Compose or run as a simple local Kubernetes workload for learning.
 
-### Step 7: Add AWS Free-Tier Integrations
+### Step 8: Add AWS Free-Tier Integrations
 
 Add carefully:
 
@@ -908,4 +1043,3 @@ Deployment
 ```
 
 That is the backbone of the project. Every future phase should attach cleanly to one of these layers.
-
