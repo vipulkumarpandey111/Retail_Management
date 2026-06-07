@@ -52,7 +52,18 @@ def main():
                 continue
 
             payload = json.loads(message.value().decode("utf-8"))
-            print(json.dumps({"topic": message.topic(), "payload": payload}, default=str))
+            print(
+                json.dumps(
+                    {
+                        "topic": message.topic(),
+                        "partition": message.partition(),
+                        "offset": message.offset(),
+                        "key": message.key().decode("utf-8") if message.key() else None,
+                        "payload": payload,
+                    },
+                    default=str,
+                )
+            )
             consumer.commit(message=message)
     finally:
         consumer.close()

@@ -737,6 +737,112 @@ Expected behavior:
 - API returns HTTP `202`.
 - Kafka consumer prints a message from `retailflow.direct.order_signals`.
 
+### Create Direct Kafka Topic With Partitions
+
+```powershell
+.\scripts\kafka\create-direct-topic.ps1 retailflow.direct.order_signals 3 1
+```
+
+Meaning:
+
+- Topic: `retailflow.direct.order_signals`
+- Partitions: `3`
+- Replication factor: `1`, because local Kafka has one broker.
+
+Describe the topic:
+
+```powershell
+.\scripts\kafka\describe-topic.ps1 retailflow.direct.order_signals
+```
+
+List all topics:
+
+```powershell
+.\scripts\kafka\list-topics.ps1
+```
+
+Read the direct topic with Kafka CLI:
+
+```powershell
+.\scripts\kafka\read-direct-topic.ps1 retailflow.direct.order_signals
+```
+
+### Publish With Different Partition Keys
+
+By default, direct Kafka publishing uses `event_type` as the Kafka key.
+
+Partition by event type:
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  partition_key_strategy = "event_type"
+  payload = @{
+    order_id = 101
+    store_code = "BLR-001"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/direct-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Partition by order ID:
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  partition_key_strategy = "order_id"
+  payload = @{
+    order_id = 101
+    store_code = "BLR-001"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/direct-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Partition by custom key:
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  partition_key_strategy = "custom"
+  custom_key = "store:BLR-001"
+  payload = @{
+    order_id = 101
+    store_code = "BLR-001"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/direct-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Expected response includes:
+
+```json
+{
+  "delivery": {
+    "topic": "retailflow.direct.order_signals",
+    "partition": 1,
+    "offset": 4
+  }
+}
+```
+
+The exact partition may differ, but the same key should consistently map to the same partition while the topic partition count stays the same.
+
 ### Create Order
 
 ```powershell
@@ -806,6 +912,33 @@ Meaning:
 
 - One consumer can observe both CDC events and direct app-published events.
 - This makes the difference between the two event styles visible while running locally.
+
+### Kafka Partitioning
+
+Kafka assigns a message to a partition using either:
+
+- An explicit partition number, if the producer provides one.
+- A hash of the message key, if the message has a key.
+- A producer strategy, often round-robin/sticky behavior, if there is no key.
+
+This project uses keyed partitioning for direct app events.
+
+Current strategies:
+
+- `event_type`: all events of the same type usually go to the same partition.
+- `order_id`: all events for the same order usually go to the same partition.
+- `custom`: lets you experiment with keys like `store:BLR-001`.
+
+Why `order_id` is useful:
+
+- All events for one order stay ordered relative to each other.
+- Different orders can spread across partitions.
+
+Why `event_type` is useful:
+
+- Easy to understand.
+- Good for demos.
+- Less ideal if one event type is much more common than others, because one partition can become hot.
 
 ### Direct Kafka Producer
 
