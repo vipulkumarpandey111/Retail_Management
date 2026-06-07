@@ -19,8 +19,15 @@ def build_partition_key(event_type, payload, partition_key_strategy, custom_key=
     raise ValueError(f"Unsupported partition_key_strategy: {partition_key_strategy}")
 
 
-def publish_direct_event(event_type, payload, partition_key_strategy="event_type", custom_key=None):
+def publish_direct_event(
+    event_type,
+    payload,
+    partition_key_strategy="event_type",
+    custom_key=None,
+    topic=None,
+):
     producer = Producer({"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS})
+    target_topic = topic or settings.KAFKA_DIRECT_TOPIC
     partition_key = build_partition_key(event_type, payload, partition_key_strategy, custom_key)
     message = {
         "event_type": event_type,
@@ -44,7 +51,7 @@ def publish_direct_event(event_type, payload, partition_key_strategy="event_type
         )
 
     producer.produce(
-        settings.KAFKA_DIRECT_TOPIC,
+        target_topic,
         key=partition_key,
         value=json.dumps(message, default=str).encode("utf-8"),
         callback=delivery_report,
@@ -52,4 +59,4 @@ def publish_direct_event(event_type, payload, partition_key_strategy="event_type
     producer.flush(10)
     if "error" in delivery:
         raise RuntimeError(f"Kafka delivery failed: {delivery['error']}")
-    return {"topic": settings.KAFKA_DIRECT_TOPIC, "delivery": delivery, "message": message}
+    return {"topic": target_topic, "delivery": delivery, "message": message}

@@ -275,12 +275,14 @@ Kafka topics currently used by the consumer:
 ```text
 retailflow.public.orders_order
 retailflow.direct.order_signals
+retailflow.direct.order_signals.partitioned
 ```
 
 Topic meanings:
 
 - `retailflow.public.orders_order`: created by Debezium from PostgreSQL CDC.
 - `retailflow.direct.order_signals`: receives direct application-published events from Django.
+- `retailflow.direct.order_signals.partitioned`: clean multi-partition demo topic for partitioning experiments.
 
 This gives two learning paths:
 
@@ -740,19 +742,19 @@ Expected behavior:
 ### Create Direct Kafka Topic With Partitions
 
 ```powershell
-.\scripts\kafka\create-direct-topic.ps1 retailflow.direct.order_signals 3 1
+.\scripts\kafka\create-direct-topic.ps1 retailflow.direct.order_signals.partitioned 3 1
 ```
 
 Meaning:
 
-- Topic: `retailflow.direct.order_signals`
+- Topic: `retailflow.direct.order_signals.partitioned`
 - Partitions: `3`
 - Replication factor: `1`, because local Kafka has one broker.
 
 Describe the topic:
 
 ```powershell
-.\scripts\kafka\describe-topic.ps1 retailflow.direct.order_signals
+.\scripts\kafka\describe-topic.ps1 retailflow.direct.order_signals.partitioned
 ```
 
 List all topics:
@@ -764,7 +766,7 @@ List all topics:
 Read the direct topic with Kafka CLI:
 
 ```powershell
-.\scripts\kafka\read-direct-topic.ps1 retailflow.direct.order_signals
+.\scripts\kafka\read-direct-topic.ps1 retailflow.direct.order_signals.partitioned
 ```
 
 ### Publish With Different Partition Keys
@@ -775,6 +777,7 @@ Partition by event type:
 
 ```powershell
 $body = @{
+  topic = "retailflow.direct.order_signals.partitioned"
   event_type = "order.signal.created"
   partition_key_strategy = "event_type"
   payload = @{
@@ -794,6 +797,7 @@ Partition by order ID:
 
 ```powershell
 $body = @{
+  topic = "retailflow.direct.order_signals.partitioned"
   event_type = "order.signal.created"
   partition_key_strategy = "order_id"
   payload = @{
@@ -813,6 +817,7 @@ Partition by custom key:
 
 ```powershell
 $body = @{
+  topic = "retailflow.direct.order_signals.partitioned"
   event_type = "order.signal.created"
   partition_key_strategy = "custom"
   custom_key = "store:BLR-001"
@@ -834,7 +839,7 @@ Expected response includes:
 ```json
 {
   "delivery": {
-    "topic": "retailflow.direct.order_signals",
+    "topic": "retailflow.direct.order_signals.partitioned",
     "partition": 1,
     "offset": 4
   }
@@ -905,7 +910,11 @@ Meaning:
 Current project version subscribes to multiple topics:
 
 ```python
-consumer.subscribe(["retailflow.public.orders_order", "retailflow.direct.order_signals"])
+consumer.subscribe([
+    "retailflow.public.orders_order",
+    "retailflow.direct.order_signals",
+    "retailflow.direct.order_signals.partitioned",
+])
 ```
 
 Meaning:

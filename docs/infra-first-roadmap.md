@@ -20,7 +20,7 @@ Goal: understand how Kafka assigns messages to partitions.
 
 Implementation:
 
-- Create `retailflow.direct.order_signals` with multiple partitions.
+- Create `retailflow.direct.order_signals.partitioned` with multiple partitions.
 - Publish messages with different key strategies:
   - `event_type`
   - `order_id`
@@ -149,4 +149,3 @@ Implementation:
 5. Add CI checks in GitHub Actions.
 6. Add AWS SQS/SNS/S3/Lambda Terraform and code.
 7. Deploy a Docker Compose version to EC2.
-

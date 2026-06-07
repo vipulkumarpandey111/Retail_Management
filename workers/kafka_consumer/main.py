@@ -36,7 +36,11 @@ def main():
         topic.strip()
         for topic in os.getenv(
             "KAFKA_CONSUMER_TOPICS",
-            "retailflow.public.orders_order,retailflow.direct.order_signals",
+            (
+                "retailflow.public.orders_order,"
+                "retailflow.direct.order_signals,"
+                "retailflow.direct.order_signals.partitioned"
+            ),
         ).split(",")
         if topic.strip()
     ]

@@ -1,4 +1,4 @@
-$topicName = if ($args.Count -ge 1) { $args[0] } else { "retailflow.direct.order_signals" }
+$topicName = if ($args.Count -ge 1) { $args[0] } else { "retailflow.direct.order_signals.partitioned" }
 
 docker exec -it retailflow-kafka kafka-console-consumer `
   --bootstrap-server kafka:29092 `
@@ -8,4 +8,3 @@ docker exec -it retailflow-kafka kafka-console-consumer `
   --property print.partition=true `
   --property print.offset=true `
   --property key.separator=" | "
-
