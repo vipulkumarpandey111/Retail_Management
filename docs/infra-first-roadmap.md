@@ -44,6 +44,12 @@ Implementation:
 - Print normalized event summaries.
 - Later store selected consumed events in `EventLog`.
 
+Current status:
+
+- Topic classification implemented.
+- Normalized summaries implemented.
+- Event persistence and routing still pending.
+
 ### 3. Dockerize Application Services
 
 Goal: move from mixed local processes to containerized services.
@@ -55,11 +61,28 @@ Implementation:
 - Add Dockerfile for Kafka consumer or reuse a shared Python image.
 - Extend Docker Compose to include API, worker, and consumer.
 
+Current status:
+
+- Dockerfile added for Django API.
+- Celery worker now reuses the backend image.
+- Dockerfile added for Kafka consumer.
+- Compose file now includes API, worker, and consumer services.
+
 Why before EC2:
 
 - EC2 Docker Compose deployment should run the same service definitions we already tested locally.
 
-### 4. GitHub Actions CI
+### 4. Verify Full Containerized Runtime
+
+Goal: make sure the all-container local stack behaves like the manual setup.
+
+Implementation:
+
+- Build all images with Docker Compose.
+- Start API, worker, consumer, and infra services together.
+- Verify health endpoint, cache probe, direct Kafka publish, and CDC order flow.
+
+### 5. GitHub Actions CI
 
 Goal: make every push verify the app.
 
@@ -71,11 +94,19 @@ Implementation:
 - Run tests with Postgres and Redis service containers.
 - Later build Docker images.
 
+Current status:
+
+- Lint enabled.
+- Django checks enabled.
+- Migration drift check enabled.
+- Focused infra tests enabled.
+- Docker image build verification enabled.
+
 Why before AWS:
 
 - It creates a quality gate before deployment.
 
-### 5. AWS Tooling Setup
+### 6. AWS Tooling Setup
 
 Goal: prepare local and CI environments for AWS safely.
 
@@ -94,7 +125,7 @@ Free-tier posture:
 - Prefer EC2 Docker Compose before Kubernetes-on-EC2.
 - Use tiny S3/SQS/SNS/Lambda examples.
 
-### 6. AWS Service Integrations
+### 7. AWS Service Integrations
 
 Goal: connect the local event system to low-cost AWS services.
 
@@ -112,7 +143,7 @@ Kafka consumer -> SQS -> Lambda -> S3
                          -> SNS
 ```
 
-### 7. EC2 Docker Compose Deployment
+### 8. EC2 Docker Compose Deployment
 
 Goal: run the service on a Free Tier-compatible EC2 path.
 
@@ -129,7 +160,7 @@ Important decision:
 - For first EC2 deployment, keep Kafka local-only or run a reduced event stack on EC2 depending on instance capacity.
 - Kafka can be memory-heavy for tiny EC2 instances, so we should introduce it carefully.
 
-### 8. Traffic Simulation
+### 9. Traffic Simulation
 
 Goal: simulate realistic traffic without high cost.
 
@@ -144,8 +175,7 @@ Implementation:
 
 1. Run the Kafka partitioning demo.
 2. Improve Kafka consumer classification.
-3. Dockerize API, Celery, and consumer.
-4. Expand Docker Compose to run the full local app stack.
-5. Add CI checks in GitHub Actions.
-6. Add AWS SQS/SNS/S3/Lambda Terraform and code.
-7. Deploy a Docker Compose version to EC2.
+3. Verify the full containerized local app stack.
+4. Add CI checks in GitHub Actions.
+5. Add AWS SQS/SNS/S3/Lambda Terraform and code.
+6. Deploy a Docker Compose version to EC2.

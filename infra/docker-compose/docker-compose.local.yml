@@ -1,4 +1,69 @@
 services:
+  api:
+    build:
+      context: ../../backend
+    container_name: retailflow-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: local-dev-only-secret
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
+      POSTGRES_DB: retailflow
+      POSTGRES_USER: retailflow
+      POSTGRES_PASSWORD: retailflow
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_DIRECT_TOPIC: retailflow.direct.order_signals
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - python manage.py migrate && gunicorn retailflow.wsgi:application --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+
+  celery-worker:
+    build:
+      context: ../../backend
+    container_name: retailflow-celery-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DJANGO_SECRET_KEY: local-dev-only-secret
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,api
+      POSTGRES_DB: retailflow
+      POSTGRES_USER: retailflow
+      POSTGRES_PASSWORD: retailflow
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_DIRECT_TOPIC: retailflow.direct.order_signals
+    working_dir: /app
+    command:
+      - celery
+      - -A
+      - retailflow
+      - worker
+      - -l
+      - info
+
   postgres:
     image: postgres:16
     container_name: retailflow-postgres
@@ -73,6 +138,17 @@ services:
       CONFIG_STORAGE_TOPIC: retailflow_connect_configs
       OFFSET_STORAGE_TOPIC: retailflow_connect_offsets
       STATUS_STORAGE_TOPIC: retailflow_connect_status
+
+  kafka-consumer:
+    build:
+      context: ../../workers/kafka_consumer
+    container_name: retailflow-kafka-consumer
+    depends_on:
+      kafka:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_CONSUMER_TOPICS: retailflow.public.orders_order,retailflow.direct.order_signals,retailflow.direct.order_signals.partitioned
 
 volumes:
   retailflow-postgres-data:

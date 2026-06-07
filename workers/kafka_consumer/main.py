@@ -19,6 +19,61 @@ signal.signal(signal.SIGINT, stop)
 signal.signal(signal.SIGTERM, stop)
 
 
+def classify_topic(topic):
+    if topic.startswith("retailflow.public."):
+        return "debezium_cdc"
+    if topic.startswith("retailflow.direct."):
+        return "direct_app_event"
+    return "unknown"
+
+
+def summarize_direct_event(payload):
+    return {
+        "event_type": payload.get("event_type"),
+        "source": payload.get("source"),
+        "partition_key_strategy": payload.get("partition_key_strategy"),
+        "partition_key": payload.get("partition_key"),
+        "payload_keys": sorted(payload.get("payload", {}).keys()),
+    }
+
+
+def summarize_cdc_event(payload):
+    after = payload.get("after") or {}
+    before = payload.get("before") or {}
+    source = payload.get("source") or {}
+
+    return {
+        "operation": payload.get("op"),
+        "table": source.get("table"),
+        "schema": source.get("schema"),
+        "aggregate_id": after.get("id") or before.get("id"),
+        "before_keys": sorted(before.keys()),
+        "after_keys": sorted(after.keys()),
+    }
+
+
+def build_message_output(message, payload):
+    topic = message.topic()
+    classification = classify_topic(topic)
+    output = {
+        "classification": classification,
+        "topic": topic,
+        "partition": message.partition(),
+        "offset": message.offset(),
+        "key": message.key().decode("utf-8") if message.key() else None,
+    }
+
+    if classification == "direct_app_event":
+        output["summary"] = summarize_direct_event(payload)
+    elif classification == "debezium_cdc":
+        output["summary"] = summarize_cdc_event(payload)
+    else:
+        output["summary"] = {"message": "Unknown topic classification"}
+
+    output["payload"] = payload
+    return output
+
+
 def build_consumer():
     return Consumer(
         {
@@ -56,18 +111,7 @@ def main():
                 continue
 
             payload = json.loads(message.value().decode("utf-8"))
-            print(
-                json.dumps(
-                    {
-                        "topic": message.topic(),
-                        "partition": message.partition(),
-                        "offset": message.offset(),
-                        "key": message.key().decode("utf-8") if message.key() else None,
-                        "payload": payload,
-                    },
-                    default=str,
-                )
-            )
+            print(json.dumps(build_message_output(message, payload), default=str))
             consumer.commit(message=message)
     finally:
         consumer.close()

@@ -18,6 +18,7 @@ At this stage, it can:
 - Publish application events directly from Django to Kafka.
 - Stream PostgreSQL table changes into Kafka through Debezium CDC.
 - Run a Python Kafka consumer that reads both direct Kafka events and Debezium-generated CDC topics.
+- Run the API, Celery worker, and Kafka consumer as Docker containers through Docker Compose.
 
 The current project is intentionally local-first. AWS, Kubernetes, and CI/CD are planned, but not yet the active runtime path.
 
@@ -94,6 +95,8 @@ How to read this structure:
 - `backend/apps/` contains domain modules.
 - `infra/docker-compose/` contains local infrastructure containers.
 - `workers/kafka_consumer/` contains the standalone Kafka consumer.
+- `backend/Dockerfile` builds the API image and is reused by the Celery worker.
+- `workers/kafka_consumer/Dockerfile` builds the Kafka consumer image.
 - `docs/` contains explanation and design documentation.
 - `.github/workflows/` contains early CI/CD workflow placeholders.
 
@@ -534,8 +537,10 @@ Current responsibility:
 - Connect to Kafka at `localhost:9092`.
 - Subscribe to `retailflow.public.orders_order`.
 - Subscribe to `retailflow.direct.order_signals`.
+- Subscribe to `retailflow.direct.order_signals.partitioned`.
 - Poll messages.
-- Print the Debezium payload.
+- Classify messages as direct app events or Debezium CDC events.
+- Print a normalized summary plus the raw payload.
 - Commit offsets manually after processing.
 
 ## 8. Config Files To Study First
@@ -848,6 +853,23 @@ Expected response includes:
 
 The exact partition may differ, but the same key should consistently map to the same partition while the topic partition count stays the same.
 
+### Kafka Consumer Classification
+
+When the consumer reads a message, it classifies the topic:
+
+- `retailflow.public.*` -> `debezium_cdc`
+- `retailflow.direct.*` -> `direct_app_event`
+
+This makes the local logs easier to read because each message includes:
+
+- classification
+- topic
+- partition
+- offset
+- key
+- summary
+- payload
+
 ### Create Order
 
 ```powershell
@@ -921,6 +943,7 @@ Meaning:
 
 - One consumer can observe both CDC events and direct app-published events.
 - This makes the difference between the two event styles visible while running locally.
+- The consumer also prints a normalized summary so the Debezium envelope is easier to scan.
 
 ### Kafka Partitioning
 
@@ -1026,6 +1049,23 @@ Start all infrastructure services:
 docker compose -f infra\docker-compose\docker-compose.local.yml up -d
 ```
 
+Start the full containerized application stack:
+
+```powershell
+docker compose -f infra\docker-compose\docker-compose.local.yml up -d --build
+```
+
+This now includes:
+
+- `api`
+- `celery-worker`
+- `kafka-consumer`
+- `postgres`
+- `redis`
+- `zookeeper`
+- `kafka`
+- `kafka-connect`
+
 Recreate a service after config changes:
 
 ```powershell
@@ -1054,11 +1094,11 @@ Current limitations:
 - No real inventory allocation yet.
 - No idempotency lookup behavior yet, even though the field exists.
 - No automated seed command yet.
-- Kafka consumer only prints events.
+- Kafka consumer classifies and prints events, but it does not persist or route them yet.
 - No SQS/SNS/S3/Lambda integration yet.
-- No Dockerfile for the Django app yet.
+- The full containerized stack still needs local runtime verification after image builds.
 - No Kubernetes manifests implemented yet.
-- CI exists as an early skeleton, but the folder is not yet initialized as a Git repository.
+- CI now runs lint, Django checks, migration checks, focused tests, and Docker image builds.
 
 ## 14. Next Recommended Steps
 
@@ -1123,19 +1163,39 @@ Why:
 
 - Keeps CI practical without requiring Kafka in every unit test.
 
-### Step 6: Dockerize Application Services
+### Step 6: Verify Full Containerized Runtime
 
-Add Dockerfiles for:
+Use Docker Compose to run:
 
-- Django API.
-- Celery worker.
-- Kafka consumer.
+- API
+- Celery worker
+- Kafka consumer
+- Postgres
+- Redis
+- Kafka
+- Kafka Connect
 
 Why:
 
-- Required before Docker Compose EC2 deployment and Kubernetes.
+- This is the closest local shape to what we will later deploy to EC2.
 
-### Step 7: Add Local Kubernetes Manifests
+### Step 7: Add Tests For Containerized And Infra Boundaries
+
+Add focused tests and CI checks for:
+
+- Django checks
+- order API
+- cache endpoint
+- direct Kafka producer wrapper
+- Docker image builds
+
+Current status:
+
+- Cache endpoint tests added.
+- Direct Kafka producer helper tests added.
+- CI workflow runs these checks automatically.
+
+### Step 8: Add Local Kubernetes Manifests
 
 Use Docker Desktop Kubernetes for:
 
@@ -1147,7 +1207,7 @@ Use Docker Desktop Kubernetes for:
 
 PostgreSQL can initially remain local/Compose or run as a simple local Kubernetes workload for learning.
 
-### Step 8: Add AWS Free-Tier Integrations
+### Step 9: Add AWS Free-Tier Integrations
 
 Add carefully:
 

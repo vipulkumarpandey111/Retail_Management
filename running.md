@@ -223,7 +223,20 @@ retailflow.direct.order_signals
 retailflow.direct.order_signals.partitioned
 ```
 
-It prints topic, partition, offset, key, and payload.
+It prints:
+
+- classification
+- topic
+- partition
+- offset
+- key
+- summary
+- payload
+
+Classification meanings:
+
+- `debezium_cdc`: message came from the Debezium CDC path.
+- `direct_app_event`: message came from the Django direct Kafka producer path.
 
 ## 10. Verify Redis Cache
 
@@ -412,9 +425,18 @@ Do not rely on `--if-not-exists` to change partition count. It will leave an exi
 
 Next infra-first implementation step:
 
-1. Dockerize Django API.
-2. Dockerize or command-wrap Celery worker.
-3. Dockerize Kafka consumer.
-4. Extend Docker Compose to run the full app stack.
-5. Then add GitHub Actions CI around lint/check/test/build.
+1. Verify the full containerized app stack locally.
+2. Let GitHub Actions run lint, Django checks, migration checks, tests, and Docker image builds.
+3. Then move into AWS tooling and service integrations.
 
+## 16. CI Verification
+
+GitHub Actions now checks:
+
+- `ruff check backend workers`
+- `python backend/manage.py check`
+- `python backend/manage.py makemigrations --check --dry-run`
+- `python backend/manage.py migrate`
+- `pytest`
+- `docker build -t retailflow-api:ci backend`
+- `docker build -t retailflow-kafka-consumer:ci workers/kafka_consumer`
