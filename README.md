@@ -6,6 +6,26 @@ The project theme is a retail inventory and replenishment platform. It is intent
 
 This README is the living project guide. We will keep updating it as each phase is implemented.
 
+## Current Checkpoint
+
+The current implemented checkpoint is:
+
+- Django API with PostgreSQL models and order creation endpoint
+- Redis-backed Celery worker
+- Redis-backed Django cache probe
+- Kafka direct producer flow from Django
+- Debezium CDC from PostgreSQL into Kafka
+- Kafka consumer that classifies direct events and CDC events
+- Dockerfiles for API and Kafka consumer
+- Docker Compose services for API, Celery worker, Kafka consumer, PostgreSQL, Redis, Kafka, Zookeeper, and Kafka Connect
+- GitHub Actions CI for lint, Django checks, migration drift checks, focused tests, and Docker image builds
+
+Supporting docs for this checkpoint:
+
+- `running.md`
+- `docs/project-explainer.md`
+- `docs/infra-first-roadmap.md`
+
 ## Target Outcome
 
 Build a production-style backend system that can:
@@ -392,4 +412,3 @@ Before Phase 1, we should confirm:
 - AWS region.
 - Whether you want Java/Spring Boot included later, or keep the main implementation Python/Django.
 - Whether the optional RDS and Aurora phases should be apply-ready or documentation-only until manually approved.
-

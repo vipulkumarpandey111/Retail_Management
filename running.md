@@ -72,6 +72,34 @@ Check containers:
 docker compose -f infra\docker-compose\docker-compose.local.yml ps
 ```
 
+## 3A. Start Full Containerized App Stack
+
+This is the preferred path when you want the API, Celery worker, and Kafka consumer to run as containers instead of separate local terminals.
+
+Build and start everything:
+
+```powershell
+docker compose -f infra\docker-compose\docker-compose.local.yml up -d --build
+```
+
+This starts:
+
+- `retailflow-api`
+- `retailflow-celery-worker`
+- `retailflow-postgres`
+- `retailflow-redis`
+- `retailflow-zookeeper`
+- `retailflow-kafka`
+- `retailflow-kafka-connect`
+- `retailflow-kafka-consumer`
+
+When using this path:
+
+- The API runs on `http://localhost:8000`
+- Django connects to `postgres:5432` inside Docker
+- Celery uses `redis:6379` inside Docker
+- Kafka clients use `kafka:29092` inside Docker
+
 ## 4. Database Setup
 
 Run migrations:
@@ -119,6 +147,8 @@ exit()
 
 ## 5. Start Django API
 
+Use this section only if you are running the API directly on your laptop instead of the full containerized app stack.
+
 In terminal 1:
 
 ```powershell
@@ -138,6 +168,8 @@ Expected:
 ```
 
 ## 6. Start Celery Worker
+
+Use this section only if you are running Celery directly on your laptop instead of the full containerized app stack.
 
 In terminal 2:
 
@@ -208,6 +240,8 @@ List topics:
 ```
 
 ## 9. Start Kafka Consumer
+
+Use this section only if you are running the Kafka consumer directly on your laptop instead of the full containerized app stack.
 
 In terminal 4, from project root:
 
@@ -385,6 +419,9 @@ docker logs retailflow-postgres
 docker logs retailflow-redis
 docker logs retailflow-kafka
 docker logs retailflow-kafka-connect
+docker logs retailflow-api
+docker logs retailflow-celery-worker
+docker logs retailflow-kafka-consumer
 ```
 
 Stop containers without deleting data:
