@@ -6,6 +6,8 @@ __pycache__/
 .env
 .env.*
 !.env.example
+!infra/ec2/.env.ec2.example
+infra/ec2/.env.ec2
 
 .pytest_cache/
 .mypy_cache/
@@ -25,4 +27,3 @@ terraform.tfvars
 .idea/
 .vscode/
 *.log
-

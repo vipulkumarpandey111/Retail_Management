@@ -125,6 +125,11 @@ Free-tier posture:
 - Prefer EC2 Docker Compose before Kubernetes-on-EC2.
 - Use tiny S3/SQS/SNS/Lambda examples.
 
+Adjusted sequence for this project:
+
+- deploy to EC2 first with a reduced stack
+- add SQS, SNS, S3, and Lambda iteratively after deployment is healthy
+
 ### 7. AWS Service Integrations
 
 Goal: connect the local event system to low-cost AWS services.
@@ -160,6 +165,11 @@ Important decision:
 - For first EC2 deployment, keep Kafka local-only or run a reduced event stack on EC2 depending on instance capacity.
 - Kafka can be memory-heavy for tiny EC2 instances, so we should introduce it carefully.
 
+Current recommendation:
+
+- deploy `api + celery-worker + postgres + redis` first
+- keep Kafka and Debezium local during the first EC2 deployment
+
 ### 9. Traffic Simulation
 
 Goal: simulate realistic traffic without high cost.
@@ -173,9 +183,8 @@ Implementation:
 
 ## Recommended Immediate Sequence
 
-1. Run the Kafka partitioning demo.
-2. Improve Kafka consumer classification.
-3. Verify the full containerized local app stack.
-4. Add CI checks in GitHub Actions.
-5. Add AWS SQS/SNS/S3/Lambda Terraform and code.
-6. Deploy a Docker Compose version to EC2.
+1. Verify the full containerized local app stack.
+2. Launch a Free Tier-conscious EC2 instance.
+3. Deploy the reduced Docker Compose stack to EC2.
+4. Add CD workflow for EC2 deployment.
+5. Add AWS SQS/SNS/S3/Lambda integrations iteratively.

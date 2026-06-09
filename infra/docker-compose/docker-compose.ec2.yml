@@ -1,0 +1,78 @@
+services:
+  api:
+    build:
+      context: ../../backend
+    container_name: retailflow-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../../infra/ec2/.env.ec2
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - python manage.py migrate && gunicorn retailflow.wsgi:application --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+
+  celery-worker:
+    build:
+      context: ../../backend
+    container_name: retailflow-celery-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../../infra/ec2/.env.ec2
+    working_dir: /app
+    command:
+      - celery
+      - -A
+      - retailflow
+      - worker
+      - -l
+      - info
+
+  postgres:
+    image: postgres:16
+    container_name: retailflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: retailflow
+      POSTGRES_USER: retailflow
+      POSTGRES_PASSWORD: retailflow
+    volumes:
+      - retailflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retailflow -d retailflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: retailflow-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    volumes:
+      - retailflow-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  retailflow-postgres-data:
+  retailflow-redis-data:
+
