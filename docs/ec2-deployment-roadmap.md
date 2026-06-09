@@ -132,6 +132,11 @@ Edit:
 - `DJANGO_ALLOWED_HOSTS`
 - `POSTGRES_PASSWORD`
 
+Important:
+
+- the same `POSTGRES_PASSWORD` value is used by both the Django containers and the PostgreSQL container
+- if you change it after PostgreSQL has already initialized its data directory, you should recreate the PostgreSQL volume for a clean first deployment
+
 ### 7. Start Reduced Stack
 
 Run:
@@ -145,6 +150,14 @@ This uses:
 ```text
 infra/docker-compose/docker-compose.ec2.yml
 ```
+
+For a first deployment, if the database password was changed after the first container startup, reset the stack with:
+
+```bash
+docker compose -f infra/docker-compose/docker-compose.ec2.yml down -v
+```
+
+Then start it again so PostgreSQL initializes with the same password used by the app containers.
 
 ### 8. Verify Deployment
 
@@ -186,4 +199,3 @@ The repo is now prepared with:
 The next code step after this should be:
 
 - convert the placeholder deployment workflow into a real EC2 deployment pipeline after your instance exists
-

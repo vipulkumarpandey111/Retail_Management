@@ -44,10 +44,8 @@ services:
     image: postgres:16
     container_name: retailflow-postgres
     restart: unless-stopped
-    environment:
-      POSTGRES_DB: retailflow
-      POSTGRES_USER: retailflow
-      POSTGRES_PASSWORD: retailflow
+    env_file:
+      - ../../infra/ec2/.env.ec2
     volumes:
       - retailflow-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -75,4 +73,3 @@ services:
 volumes:
   retailflow-postgres-data:
   retailflow-redis-data:
-
