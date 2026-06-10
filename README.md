@@ -1,414 +1,188 @@
 # RetailFlow Lab
 
-RetailFlow Lab is a from-scratch, hands-on backend project for practicing distributed systems with Python, Django, PostgreSQL, Kafka, Debezium CDC, Redis, Celery, Docker, Kubernetes, Terraform, and selected AWS services.
+RetailFlow Lab is an infra-first backend systems project built to practice how real backend applications move from local development to containerized runtime, CI, CD, and cloud deployment.
 
-The project theme is a retail inventory and replenishment platform. It is intentionally aligned with real backend work: inventory updates, order placement, warehouse allocation, async processing, CDC event streams, notifications, object storage, CI/CD, and cloud deployment.
+The business theme is retail inventory and order processing, but the primary learning goal is infrastructure:
 
-This README is the living project guide. We will keep updating it as each phase is implemented.
+- PostgreSQL as the transactional database
+- Redis for cache and Celery transport
+- Celery for async work
+- Kafka for streaming
+- Debezium for CDC
+- Docker Compose for local and EC2 runtime
+- GitHub Actions for CI/CD
+- EC2 as the first cloud deployment target
 
 ## Current Checkpoint
 
-The current implemented checkpoint is:
+The project has now reached a meaningful V1 infrastructure milestone.
 
-- Django API with PostgreSQL models and order creation endpoint
-- Redis-backed Celery worker
-- Redis-backed Django cache probe
-- Kafka direct producer flow from Django
+Current working capabilities:
+
+- Django API running locally and on EC2
+- PostgreSQL-backed order and inventory data model
+- Redis-backed cache probe endpoint
+- Celery worker processing async order work
+- Direct Kafka publishing from Django
 - Debezium CDC from PostgreSQL into Kafka
-- Kafka consumer that classifies direct events and CDC events
-- Dockerfiles for API and Kafka consumer
-- Docker Compose services for API, Celery worker, Kafka consumer, PostgreSQL, Redis, Kafka, Zookeeper, and Kafka Connect
-- GitHub Actions CI for lint, Django checks, migration drift checks, focused tests, and Docker image builds
+- Kafka consumer that classifies direct events vs CDC events
+- Full local Docker Compose stack for infra + app services
+- Reduced EC2 Docker Compose stack for `api + celery-worker + postgres + redis`
+- GitHub Actions CI for lint, Django checks, migration checks, tests, and Docker image builds
+- GitHub Actions CD for deployment to EC2 over SSH
 
-Supporting docs for this checkpoint:
+In plain terms: we now have a backend application that can be developed locally, validated in CI, and deployed to a real VM through CD.
 
-- `running.md`
-- `docs/project-explainer.md`
-- `docs/infra-first-roadmap.md`
+## What Is Running Where
 
-## Target Outcome
+### Local Full Stack
 
-Build a production-style backend system that can:
+Local development can run:
 
-- Manage stores, warehouses, SKUs, inventory snapshots, purchase orders, and replenishment recommendations.
-- Expose Django REST APIs for inventory and order workflows.
-- Persist transactional data in PostgreSQL.
-- Emit database changes through Debezium CDC into Kafka.
-- Run Kafka consumers as containerized services.
-- Run Celery workers backed by Redis.
-- Publish selected events to AWS SQS and SNS.
-- Store generated reports or import files in S3.
-- Use Lambda for lightweight event processing.
-- Provision cloud infrastructure with Terraform.
-- Package services with Docker.
-- Deploy local Kubernetes workloads with resource requests and limits.
-- Use CI/CD YAML pipelines for tests, builds, linting, Docker image creation, and deployment gates.
+- `api`
+- `celery-worker`
+- `kafka-consumer`
+- `postgres`
+- `redis`
+- `zookeeper`
+- `kafka`
+- `kafka-connect`
 
-## Cost Guardrails
+Main file:
 
-The project should stay compatible with AWS Free Tier wherever possible.
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
 
-Important note: Amazon RDS has Free Tier options for small database instances, but Aurora is usually not a safe default for a zero-cost learning project. We will handle this in two tracks:
+### EC2 Reduced Stack
 
-- Default track: local PostgreSQL plus optional AWS RDS PostgreSQL Free Tier instance.
-- Optional Aurora track: Terraform module and documentation only, created manually when you explicitly approve it, then destroyed immediately after testing.
+The EC2 deployment intentionally keeps the stack lighter:
 
-AWS services we can use cautiously:
+- `api`
+- `celery-worker`
+- `postgres`
+- `redis`
 
-- S3: use tiny files and lifecycle cleanup.
-- Lambda: small functions with low invocation counts.
-- SQS and SNS: low-volume event testing.
-- RDS PostgreSQL: only if your account has eligible Free Tier remaining.
-- EC2 SSH bastion: optional, only if eligible Free Tier is confirmed.
+Main file:
 
-Services to avoid by default because they can become costly:
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
 
-- MSK / managed Kafka.
-- Long-running Aurora clusters.
-- EKS clusters.
-- NAT gateways.
-- Large EC2 instances.
+Kafka and Debezium stay local for now so the EC2 instance remains Free Tier-friendly and easier to reason about.
 
-For Kubernetes, we will start with local Kubernetes using Docker Desktop, kind, or minikube. This gives hands-on manifests, resource allocation, services, config maps, secrets, deployments, jobs, and horizontal-scaling concepts without EKS cost.
+## Documentation Map
+
+Read these in this order:
+
+1. [README.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\README.md)
+2. [running.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\running.md)
+3. [docs/project-explainer.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\project-explainer.md)
+4. [docs/ec2-deployment-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\ec2-deployment-roadmap.md)
+5. [docs/infra-first-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\infra-first-roadmap.md)
+
+Use them like this:
+
+- `README.md`: high-level status and repo map
+- `running.md`: operational runbook
+- `project-explainer.md`: top-down infra understanding
+- `ec2-deployment-roadmap.md`: EC2 and CD deployment path
+- `infra-first-roadmap.md`: what we should build next and in what order
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-    Client["API Client"] --> API["Django REST API"]
-    API --> PG["PostgreSQL / RDS PostgreSQL"]
-    API --> Redis["Redis"]
-    API --> S3["AWS S3"]
-    API --> SQS["AWS SQS"]
-    API --> SNS["AWS SNS"]
-
+    Client["Client / PowerShell / Browser"] --> API["Django API"]
+    API --> PG["PostgreSQL"]
+    API --> Redis["Redis Cache"]
+    API --> DirectKafka["Direct Kafka Topic"]
     Redis --> Celery["Celery Worker"]
     Celery --> PG
-    Celery --> S3
-    Celery --> SNS
-
-    PG --> Debezium["Kafka Connect + Debezium CDC"]
-    Debezium --> Kafka["Kafka Topics"]
-    Kafka --> Consumer["Containerized Kafka Consumer"]
-    Consumer --> SQS
-    Consumer --> API
-
-    SQS --> Lambda["AWS Lambda"]
-    Lambda --> S3
-    Lambda --> SNS
+    PG --> Debezium["Kafka Connect + Debezium"]
+    Debezium --> CDCKafka["CDC Kafka Topic"]
+    DirectKafka --> Consumer["Kafka Consumer"]
+    CDCKafka --> Consumer
+    Dev["Git Push"] --> CI["GitHub Actions CI"]
+    CI --> CD["GitHub Actions CD"]
+    CD --> EC2["EC2 Docker Compose Deployment"]
 ```
 
-## Proposed Repository Structure
-
-```text
-retailflow-lab/
-  README.md
-  backend/
-    manage.py
-    retailflow/
-    apps/
-      inventory/
-      orders/
-      replenishment/
-      events/
-    requirements/
-      base.txt
-      dev.txt
-      prod.txt
-    Dockerfile
-  workers/
-    celery_worker/
-    kafka_consumer/
-  infra/
-    docker-compose/
-      docker-compose.local.yml
-      debezium-postgres.json
-    terraform/
-      modules/
-        s3/
-        sqs/
-        sns/
-        lambda/
-        rds-postgres/
-        aurora-optional/
-      envs/
-        dev/
-    kubernetes/
-      namespace.yml
-      postgres.yml
-      redis.yml
-      django-api.yml
-      celery-worker.yml
-      kafka-consumer.yml
-  lambda/
-    event_archiver/
-  scripts/
-    aws/
-    db/
-    kafka/
-    local/
-  .github/
-    workflows/
-      ci.yml
-      deploy-dev.yml
-```
-
-## Roadmap
-
-### Phase 0: Project Charter and Local Tooling
-
-Goal: establish the workspace, install local tools, and document commands.
-
-Planned work:
-
-- Confirm local versions of Python, Docker, Git, AWS CLI, Terraform, kubectl, and a local Kubernetes runtime.
-- Create the base repository structure.
-- Add `.gitignore`, environment templates, and command scripts.
-- Create this README as the source of truth.
-
-Hands-on commands will include:
-
-```powershell
-python --version
-docker --version
-aws --version
-terraform --version
-kubectl version --client
-git status
-```
-
-### Phase 1: Django API + PostgreSQL
-
-Goal: build the core backend service.
-
-Planned work:
-
-- Create a Django project with Django REST Framework.
-- Add apps for inventory, orders, replenishment, and events.
-- Model stores, warehouses, SKUs, inventory balances, orders, and event logs.
-- Add API endpoints for inventory updates and order creation.
-- Add PostgreSQL through Docker Compose.
-- Add migrations and seed data.
-
-Hands-on commands will include:
-
-```powershell
-docker compose -f infra/docker-compose/docker-compose.local.yml up -d postgres
-python backend/manage.py migrate
-python backend/manage.py createsuperuser
-python backend/manage.py runserver
-```
-
-### Phase 2: Redis + Celery
+## Important Files
 
-Goal: move slow workflows out of the request path.
+Core application:
 
-Planned work:
+- [backend/retailflow/settings.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\settings.py)
+- [backend/apps/orders/serializers.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\serializers.py)
+- [backend/apps/orders/tasks.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\tasks.py)
+- [backend/apps/events/kafka.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\kafka.py)
+- [workers/kafka_consumer/main.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\workers\kafka_consumer\main.py)
 
-- Add Redis through Docker Compose.
-- Add Celery to Django.
-- Create async tasks for replenishment scoring, report generation, and notification dispatch.
-- Add retry policies and idempotency keys.
-- Add a scheduled Celery beat job for daily replenishment recommendations.
+Infrastructure:
 
-Hands-on commands will include:
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
+- [infra/docker-compose/debezium-postgres.json](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\debezium-postgres.json)
+- [infra/ec2/.env.ec2.example](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\ec2\.env.ec2.example)
 
-```powershell
-docker compose -f infra/docker-compose/docker-compose.local.yml up -d redis
-celery -A retailflow worker -l info
-celery -A retailflow beat -l info
-```
+Automation:
 
-### Phase 3: Kafka + Kafka Connect + Debezium CDC
+- [.github/workflows/ci.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\ci.yml)
+- [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
+- [scripts/aws/ec2-bootstrap.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\ec2-bootstrap.sh)
+- [scripts/aws/deploy-ec2.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\deploy-ec2.sh)
 
-Goal: stream PostgreSQL changes into Kafka topics.
+## V1 Outcome
 
-Planned work:
+The current V1 outcome is:
 
-- Add Kafka and Kafka Connect locally through Docker Compose.
-- Configure PostgreSQL logical replication.
-- Add Debezium PostgreSQL connector.
-- Stream inventory and order table changes into Kafka topics.
-- Build a Python Kafka consumer service.
-- Store consumed event offsets and add retry-safe processing.
+- local event-driven infra works
+- Dockerized app runtime works
+- manual EC2 deployment works
+- GitHub Actions CI works
+- GitHub Actions CD works
 
-Hands-on commands will include:
+That means the project already covers a realistic first backend-infra journey:
 
-```powershell
-docker compose -f infra/docker-compose/docker-compose.local.yml up -d kafka kafka-connect
-docker exec -it retailflow-kafka bash
-docker exec -it retailflow-postgres psql -U retailflow -d retailflow
-curl -X POST http://localhost:8083/connectors -H "Content-Type: application/json" --data @infra/docker-compose/debezium-postgres.json
-```
+1. build the app
+2. containerize it
+3. add async/background execution
+4. add event streaming
+5. add CI
+6. deploy to a cloud VM through CD
 
-### Phase 4: AWS S3, SQS, SNS, and Lambda
+## Security Note
 
-Goal: integrate low-cost AWS services through code and Terraform.
+One conscious temporary compromise exists in the current setup:
 
-Planned work:
+- port `22` and port `8000` may be open to `0.0.0.0/0` to allow GitHub-hosted runners and public testing
 
-- Create Terraform modules for S3, SQS, SNS, and Lambda.
-- Add least-privilege IAM policies.
-- Add Django code to upload generated reports to S3.
-- Add event publishing to SQS and SNS.
-- Add a Lambda function that consumes SQS messages and archives event payloads to S3.
-- Keep payloads tiny and clean up test resources.
+That is acceptable for a learning-stage dev environment, but not where we should stop.
 
-Hands-on commands will include:
+This is one of the next cleanup steps:
 
-```powershell
-aws configure
-aws sts get-caller-identity
-terraform -chdir=infra/terraform/envs/dev init
-terraform -chdir=infra/terraform/envs/dev plan
-terraform -chdir=infra/terraform/envs/dev apply
-aws s3 ls
-aws sqs list-queues
-aws sns list-topics
-aws lambda list-functions
-```
+- reduce public exposure
+- tighten security groups
+- eventually keep the database outside the VM
 
-### Phase 5: RDS PostgreSQL and Optional Aurora
+## Free Tier Position
 
-Goal: practice database provisioning and remote connectivity.
+The current deployment path is aligned with AWS Free Tier thinking:
 
-Planned work:
+- EC2 first, not EKS
+- Docker Compose first, not Kubernetes on AWS
+- local Kafka instead of MSK
+- local Debezium instead of managed streaming stack
+- PostgreSQL in Docker now, RDS later as the next major infra step
 
-- Add Terraform for an RDS PostgreSQL Free Tier style instance.
-- Keep the default instance small and single-AZ.
-- Document security groups, subnet groups, credentials, and teardown.
-- Connect from local terminal using `psql`.
-- Optionally add Aurora Terraform config, but do not apply it unless explicitly approved.
+## Recommended Next Steps
 
-Hands-on commands will include:
+Best next order from here:
 
-```powershell
-terraform -chdir=infra/terraform/envs/dev plan -target=module.rds_postgres
-psql "host=<rds-endpoint> port=5432 dbname=retailflow user=<user> sslmode=require"
-terraform -chdir=infra/terraform/envs/dev destroy -target=module.rds_postgres
-```
+1. move PostgreSQL from EC2 container to RDS
+2. tighten security groups and deployment exposure
+3. improve CD with branch/environment discipline
+4. add small AWS service integrations like SQS, SNS, S3, or Lambda
+5. later decide whether Terraform should manage those cloud resources
 
-### Phase 6: Dockerization
+## Quick Repo Description
 
-Goal: package all runnable services.
+Suggested GitHub repo description:
 
-Planned work:
-
-- Add Dockerfiles for Django API, Celery worker, and Kafka consumer.
-- Add Docker Compose profiles for local development.
-- Add health checks.
-- Add environment-specific settings.
-
-Hands-on commands will include:
-
-```powershell
-docker build -t retailflow-api:local backend
-docker build -t retailflow-kafka-consumer:local workers/kafka_consumer
-docker compose -f infra/docker-compose/docker-compose.local.yml up --build
-```
-
-### Phase 7: Kubernetes
-
-Goal: deploy the app locally with production-style resource allocation.
-
-Planned work:
-
-- Add Kubernetes manifests for API, Celery worker, Kafka consumer, Redis, and local Postgres.
-- Add config maps and secrets.
-- Add readiness and liveness probes.
-- Add resource requests and limits.
-- Add service definitions.
-- Use local Kubernetes instead of EKS to stay cost-safe.
-
-Hands-on commands will include:
-
-```powershell
-kubectl apply -f infra/kubernetes/namespace.yml
-kubectl apply -f infra/kubernetes/
-kubectl get pods -n retailflow
-kubectl logs -n retailflow deployment/retailflow-api
-kubectl exec -it -n retailflow deployment/retailflow-api -- python manage.py migrate
-```
-
-### Phase 8: CI/CD Pipelines
-
-Goal: practice YAML pipelines with explicit compute and deployment steps.
-
-Planned work:
-
-- Add GitHub Actions workflow for linting, tests, and Docker builds.
-- Add service containers for PostgreSQL and Redis during tests.
-- Add deployment workflow with protected manual trigger.
-- Add Terraform plan workflow.
-- Add resource-conscious job configuration and caching.
-
-Hands-on files:
-
-```text
-.github/workflows/ci.yml
-.github/workflows/deploy-dev.yml
-.github/workflows/terraform-plan.yml
-```
-
-### Phase 9: Observability and Reliability
-
-Goal: add production-minded operational behavior.
-
-Planned work:
-
-- Add structured logging.
-- Add request IDs and event correlation IDs.
-- Add metrics endpoint.
-- Add health checks.
-- Add retries, dead-letter queues, and idempotency handling.
-- Add local dashboards if appropriate.
-
-### Phase 10: Resume-Grade System Design Documentation
-
-Goal: turn the project into something useful for interviews and portfolio discussion.
-
-Planned work:
-
-- Add architecture diagrams.
-- Add API examples.
-- Add event contracts.
-- Add failure-mode notes.
-- Add cost notes.
-- Add a deployment runbook.
-- Add an interview-style system design summary.
-
-## Terminal-First Operating Style
-
-We will prefer terminal-driven setup wherever possible.
-
-Examples:
-
-- Use `docker exec` for PostgreSQL, Redis, Kafka, and Kafka Connect.
-- Use `kubectl exec` for Kubernetes debugging.
-- Use `aws` CLI for S3, SQS, SNS, Lambda, IAM verification, and account checks.
-- Use `terraform` for cloud resource creation.
-- Use SSH only for resources that are actually SSH-capable, such as an optional EC2 bastion. Managed services like S3, SQS, SNS, Lambda, RDS, and Aurora are not SSH targets.
-
-## First Build Milestone
-
-The first implementation milestone should be:
-
-1. Create Django project skeleton.
-2. Add PostgreSQL, Redis, Kafka, and Kafka Connect through Docker Compose.
-3. Add one inventory model and one order model.
-4. Add one REST endpoint that creates an order.
-5. Add one Celery task that processes the order asynchronously.
-6. Add Debezium CDC for the order table.
-7. Add one Kafka consumer that reacts to order events.
-
-This gives us a complete local event-driven loop before touching AWS.
-
-## Decisions To Confirm Before Implementation
-
-Before Phase 1, we should confirm:
-
-- Local Kubernetes preference: Docker Desktop Kubernetes, minikube, or kind.
-- CI/CD preference: GitHub Actions, Jenkins, or both.
-- AWS region.
-- Whether you want Java/Spring Boot included later, or keep the main implementation Python/Django.
-- Whether the optional RDS and Aurora phases should be apply-ready or documentation-only until manually approved.
+`Infra-first backend systems lab using Django, PostgreSQL, Redis, Celery, Kafka, Debezium, Docker, GitHub Actions CI/CD, and AWS EC2.`

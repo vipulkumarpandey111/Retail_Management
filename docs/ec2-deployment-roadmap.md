@@ -1,238 +1,246 @@
 # EC2 Deployment Roadmap
 
-This document defines the EC2-first deployment path for RetailFlow Lab. The goal is to keep the first cloud deployment Free Tier-conscious and operationally simple, then add more AWS services later.
+This document explains the EC2 deployment path that is now implemented in the project.
 
-## Why EC2 First
+It focuses on three things:
 
-For this project, EC2 is enough to understand backend infrastructure concepts:
+1. why we chose EC2 first
+2. what was configured on the VM
+3. how GitHub Actions deploys to it now
 
-- virtual machine setup
-- SSH access
-- Docker and Docker Compose
-- process isolation with containers
-- ports and security groups
-- environment variable management
-- deployment updates
-- log inspection
-- basic monitoring
+## 1. Why EC2 Was the Right First Cloud Step
 
-We do not need SQS, SNS, S3, Lambda, or Kubernetes on day one to start learning deployment and backend operations.
+We intentionally chose EC2 before RDS, Terraform-heavy AWS provisioning, or Kubernetes on AWS.
 
-## Free Tier-Safe Approach
+Why:
 
-Recommended first EC2 deployment shape:
+- simplest cloud compute mental model
+- Free Tier-friendly compared to bigger managed platforms
+- enough to learn SSH, Linux, Docker, Compose, security groups, and deployment
+- avoids jumping too early into EKS or MSK complexity
+
+This gave us a fast path from "local Dockerized app" to "real cloud deployment."
+
+## 2. What the Current EC2 Runtime Includes
+
+The EC2 deployment is intentionally a reduced stack:
 
 - Django API
 - Celery worker
-- Redis
 - PostgreSQL
+- Redis
 
-Kafka, Zookeeper, Kafka Connect, and Debezium stay local for now.
+It does not currently include:
 
-Reason:
+- Kafka
+- Zookeeper
+- Kafka Connect
+- Debezium
+- Kafka consumer
 
-- Kafka is comparatively memory-heavy for a tiny EC2 instance.
-- A reduced stack is much safer for Free Tier usage.
-- We can still learn deployment, VM operations, Docker Compose, and CD without adding avoidable cost or instability.
+Why this split exists:
 
-## Monitoring Recommendation
+- local is the full infra lab
+- EC2 is the lighter deployment lab
+- Kafka-heavy services would make a small VM less comfortable
 
-Use the simplest low-overhead path first:
+## 3. Files That Control EC2 Deployment
 
-- EC2 basic monitoring in CloudWatch
-- AWS Budgets cost alert
-- Docker logs on the instance
+Main files:
 
-According to AWS docs:
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
+- [infra/ec2/.env.ec2.example](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\ec2\.env.ec2.example)
+- [scripts/aws/ec2-bootstrap.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\ec2-bootstrap.sh)
+- [scripts/aws/deploy-ec2.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\deploy-ec2.sh)
+- [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
 
-- EC2 basic monitoring is enabled by default and publishes standard metrics every 5 minutes.
-- EC2 detailed monitoring publishes 1-minute metrics and incurs extra CloudWatch charges.
-- AWS Budgets can be used to track cost and send alerts.
+## 4. What We Configured on EC2
 
-So for this stage:
+### A. Instance launch
 
-- keep basic monitoring
-- do not enable detailed monitoring yet
-- create a small monthly budget alert
+We launched:
 
-## User Steps
-
-### 1. Confirm Free Tier Eligibility
-
-You need to confirm:
-
-- whether your AWS account is still in its Free Tier eligibility window
-- which EC2 instance types are Free Tier-eligible for your account
-
-Useful AWS docs:
-
-- [Track your Free Tier usage for Amazon EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-free-tier-usage.html)
-- [Confirming eligibility to use AWS Free Tier](https://docs.aws.amazon.com/awsaccountbilling/latest/aboutv2/free-tier-eligibility.html)
-
-### 2. Create Cost Guardrails
-
-Before launching anything:
-
-- create an AWS Budget with a very small threshold
-- use email alerts
-
-Useful AWS docs:
-
-- [Creating a budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-create.html)
-- [Control Your AWS Costs](https://docs.aws.amazon.com/hands-on/latest/control-your-costs-free-tier-budgets/control-your-costs-free-tier-budgets.html)
-
-### 3. Launch EC2 Instance
-
-Recommended starting point:
-
-- Ubuntu LTS
-- Free Tier-eligible instance family for your account
+- Ubuntu
 - `ap-south-1`
-- security group with:
-  - `22` for SSH from your IP only
-  - `8000` from your IP for API testing
+- Free Tier-conscious instance type
 
-Do not open:
+### B. Security groups
 
-- `5432`
-- `6379`
+At minimum we worked with:
 
-PostgreSQL and Redis should remain internal to Docker.
+- port `22` for SSH
+- port `8000` for the API
 
-### 4. SSH Into EC2 And Install Docker
+Important note:
 
-Run:
+- in the current learning-stage setup, these may be open to `0.0.0.0/0`
+- that is useful for getting GitHub Actions and public testing working
+- it is not the final hardened shape
 
-```bash
-bash scripts/aws/ec2-bootstrap.sh
-```
+### C. Docker installation
 
-Reconnect SSH after the script finishes.
+We used:
 
-### 5. Clone Repo On EC2
+- [scripts/aws/ec2-bootstrap.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\ec2-bootstrap.sh)
 
-Example:
+What it does:
 
-```bash
-git clone <your-repo-url> ~/Retail_Management
-cd ~/Retail_Management
-```
+1. installs system prerequisites
+2. adds Docker's apt repository
+3. installs Docker Engine and Compose plugin
+4. adds the current user to the `docker` group
+5. enables and starts Docker
 
-### 6. Create EC2 Environment File
+Why each part matters:
 
-Copy:
+- Docker Engine runs containers
+- Compose plugin runs multi-service stacks
+- docker group access avoids needing `sudo` for every Docker command
 
-```bash
-cp infra/ec2/.env.ec2.example infra/ec2/.env.ec2
-```
+### D. Repo clone and env file
 
-Edit:
+On EC2 we:
+
+1. cloned the repo
+2. created `infra/ec2/.env.ec2`
+3. filled in deployment-specific values
+
+Typical values include:
 
 - `DJANGO_SECRET_KEY`
 - `DJANGO_ALLOWED_HOSTS`
 - `POSTGRES_PASSWORD`
 
-Important:
+Why:
 
-- the same `POSTGRES_PASSWORD` value is used by both the Django containers and the PostgreSQL container
-- if you change it after PostgreSQL has already initialized its data directory, you should recreate the PostgreSQL volume for a clean first deployment
+- local config should not be reused blindly on EC2
+- container networking on EC2 is different from local host networking
 
-### 7. Start Reduced Stack
+## 5. How the EC2 Compose File Works
 
-Run:
+The EC2 stack is defined in:
 
-```bash
-bash scripts/aws/deploy-ec2.sh
-```
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
 
-This uses:
+Important behavior:
 
-```text
-infra/docker-compose/docker-compose.ec2.yml
-```
+- API builds from the backend Dockerfile
+- API runs migrations before starting Gunicorn
+- API binds to `0.0.0.0:8000`
+- API exposes `8000:8000`
+- Celery worker uses the same backend image with a different command
+- Postgres and Redis use named Docker volumes for persistence
 
-For a first deployment, if the database password was changed after the first container startup, reset the stack with:
+Why this is useful:
 
-```bash
-docker compose -f infra/docker-compose/docker-compose.ec2.yml down -v
-```
+- app startup is mostly self-contained
+- worker and API share the same code image
+- data survives container restarts because of volumes
 
-Then start it again so PostgreSQL initializes with the same password used by the app containers.
+## 6. How Manual Deployment Works
 
-### 8. Verify Deployment
+Manual deployment is done through:
 
-From your laptop:
+- [scripts/aws/deploy-ec2.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\deploy-ec2.sh)
 
-```powershell
-Invoke-RestMethod "http://<ec2-public-ip>:8000/health/"
-```
+What it does:
 
-On EC2:
+1. move into the project directory
+2. verify `infra/ec2/.env.ec2` exists
+3. run `docker compose up -d --build`
+4. print compose status
 
-```bash
-docker compose -f infra/docker-compose/docker-compose.ec2.yml ps
-docker logs retailflow-api
-docker logs retailflow-celery-worker
-```
+This keeps the deployment script intentionally small and easy to understand.
 
-### 9. Add CD After EC2 Works
+## 7. How CD Works Now
 
-Only after the manual EC2 deployment is healthy should we automate it.
+The GitHub Actions deployment workflow is:
 
-The current CD workflow now does this:
+- [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
 
-- trigger manually first
-- accept a branch input
-- SSH into EC2
-- `git fetch`
-- `git checkout <branch>`
-- `git pull`
-- run `bash scripts/aws/deploy-ec2.sh`
-- run an external `/health/` check from GitHub Actions
+Current step-by-step flow:
 
-### 10. GitHub Secrets Required For CD
+1. manual trigger from GitHub Actions
+2. checkout repo
+3. start SSH agent with private key from GitHub secret
+4. add EC2 host to `known_hosts`
+5. SSH into EC2
+6. `git fetch origin`
+7. `git checkout <branch>`
+8. `git pull origin <branch>`
+9. run `bash scripts/aws/deploy-ec2.sh`
+10. run health check from inside EC2 using `curl http://localhost:8000/health/`
 
-Create these repository secrets in GitHub:
+That last step is important.
+
+Earlier we tried checking the public EC2 IP from the GitHub runner. That led to false failures because public network reachability and runner source IPs can be tricky. So we changed the health check to run on the VM itself.
+
+That is a better fit for the current project stage.
+
+## 8. GitHub Secrets Used for CD
+
+Current deployment secrets:
 
 - `EC2_HOST`
-  - example: `52.66.235.103`
 - `EC2_USER`
-  - example: `ubuntu`
 - `EC2_APP_DIR`
-  - example: `/home/ubuntu/Retail_Management`
 - `EC2_SSH_PRIVATE_KEY`
-  - the full contents of your `.pem` private key
 - `DEPLOY_HEALTHCHECK_HOST`
-  - example: `52.66.235.103`
 
-### 11. How To Run CD
+What they do:
 
-In GitHub:
+- `EC2_HOST`: tells the workflow where to SSH
+- `EC2_USER`: Linux username on the EC2 machine
+- `EC2_APP_DIR`: repo path on the VM
+- `EC2_SSH_PRIVATE_KEY`: private key used for SSH authentication
+- `DEPLOY_HEALTHCHECK_HOST`: kept from the earlier external health-check approach
 
-1. Open the repo
-2. Go to `Actions`
-3. Open `Deploy Dev`
-4. Click `Run workflow`
-5. Keep `main` as the branch for now
-6. Run the workflow
+Why use GitHub secrets:
 
-If successful, the workflow:
+- values do not live in committed YAML
+- they are masked in logs
+- changing them does not require code changes
 
-- connects to EC2
-- updates the checked-out repo
-- rebuilds and restarts the reduced stack
-- confirms `/health/` returns success
+## 9. Current Strengths of This Setup
 
-## Project Steps I Am Taking Next
+The current EC2 deployment path is strong for learning because it teaches:
 
-The repo is now prepared with:
+- cloud VM basics
+- Linux operations
+- Docker Compose deployment
+- environment configuration
+- secret handling
+- port and networking thinking
+- CI/CD integration
+- troubleshooting using logs and health checks
 
-- `infra/docker-compose/docker-compose.ec2.yml`
-- `infra/ec2/.env.ec2.example`
-- `scripts/aws/ec2-bootstrap.sh`
-- `scripts/aws/deploy-ec2.sh`
-- `.github/workflows/deploy-dev.yml`
+## 10. Current Weaknesses of This Setup
 
-The next code step after this should be:
+This is not yet the final shape, and that is okay.
 
-- move PostgreSQL from EC2 container to RDS after the CD workflow is verified
+Current limitations:
+
+- database is still on the same VM as the app
+- Redis is still on the same VM as the app
+- security-group exposure can still be too broad
+- Kafka is not yet part of cloud deployment
+- no managed AWS services are integrated yet
+- no Terraform-managed cloud resources yet
+
+These are exactly the kinds of improvements that should come next.
+
+## 11. Best Next Steps After EC2 + CD
+
+Recommended next order:
+
+1. move PostgreSQL from EC2 container to RDS
+2. reduce exposure in security groups
+3. improve deployment environment separation
+4. add AWS services like SQS, SNS, S3, or Lambda
+5. introduce Terraform where it adds clarity and repeatability
+
+## 12. Short Version
+
+If you want the shortest summary:
+
+we used EC2 as the first cloud deployment target because it teaches the most important backend deployment basics with the least moving parts, and we now have a working GitHub Actions pipeline that can deploy this reduced Docker Compose stack to that VM.

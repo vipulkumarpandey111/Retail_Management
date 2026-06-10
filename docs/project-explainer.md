@@ -1,1247 +1,746 @@
 # RetailFlow Lab Project Explainer
 
-This document explains the current project from the top down. The goal is to make the infrastructure, setup flow, business flow, and moving parts understandable before we add more features.
+This document explains the project from the infrastructure point of view.
 
-## 1. Current Project State
+The goal is not just to say what the files are. The goal is to help you understand the journey of a backend project from local setup to deployment:
 
-RetailFlow Lab is currently a local event-driven backend system.
+1. what we built
+2. why each layer exists
+3. how the layers connect
+4. which files control the setup
+5. which commands were used
+6. what is already complete
+7. what should come next
 
-At this stage, it can:
+## 1. Executive Summary
 
-- Run PostgreSQL, Redis, Kafka, Zookeeper, and Kafka Connect with Debezium through Docker Compose.
-- Run a Django REST API locally.
-- Persist retail data in PostgreSQL.
-- Use Redis as a Django cache.
-- Create orders through an API endpoint.
-- Trigger a Celery task through Redis after an order is committed.
-- Update the order status asynchronously.
-- Publish application events directly from Django to Kafka.
-- Stream PostgreSQL table changes into Kafka through Debezium CDC.
-- Run a Python Kafka consumer that reads both direct Kafka events and Debezium-generated CDC topics.
-- Run the API, Celery worker, and Kafka consumer as Docker containers through Docker Compose.
+RetailFlow Lab is now at a strong V1 infrastructure milestone.
 
-The current project is intentionally local-first. AWS, Kubernetes, and CI/CD are planned, but not yet the active runtime path.
+We already have:
 
-## 2. Big Picture Runtime Flow
+- a Django backend application
+- PostgreSQL as the transactional database
+- Redis for cache and Celery transport
+- Celery for async processing
+- Kafka for streaming
+- Debezium for CDC from PostgreSQL to Kafka
+- Docker Compose for local runtime
+- a reduced Docker Compose deployment on EC2
+- GitHub Actions CI
+- GitHub Actions CD
+
+So this is no longer just a local backend codebase. It is now a backend system that can:
+
+- run locally with multiple infra tools
+- run in containers
+- be tested automatically in CI
+- be deployed automatically to EC2 through GitHub Actions
+
+That is the first major end-to-end infra milestone.
+
+## 2. The Big Picture
+
+At a high level, this project is made of five layers:
+
+```text
+Layer 1: Application
+  Django API receives requests.
+
+Layer 2: Transaction Storage
+  PostgreSQL stores the source of truth.
+
+Layer 3: Async and Cache
+  Redis + Celery handle background work and caching.
+
+Layer 4: Event Streaming
+  Kafka carries direct application events and CDC events.
+
+Layer 5: Delivery and Operations
+  Docker Compose, GitHub Actions, and EC2 run and deploy the system.
+```
+
+That is the main mental model to keep in your head.
+
+## 3. Two Runtime Shapes
+
+One thing that matters a lot in infra understanding is this: the project currently has two runtime shapes.
+
+### Local Full Stack
+
+Local is where we learn the full infra picture.
+
+It includes:
+
+- Django API
+- Celery worker
+- Kafka consumer
+- PostgreSQL
+- Redis
+- Zookeeper
+- Kafka
+- Kafka Connect
+- Debezium connector
+
+This is the "full learning environment."
+
+### EC2 Reduced Stack
+
+EC2 is where we learn deployment and operations without overloading the VM.
+
+It includes:
+
+- Django API
+- Celery worker
+- PostgreSQL
+- Redis
+
+It intentionally excludes:
+
+- Kafka
+- Zookeeper
+- Kafka Connect
+- Debezium
+- Kafka consumer
+
+Why?
+
+- Kafka and related components are heavier
+- a small EC2 instance is easier to manage without them
+- we wanted a Free Tier-conscious first deployment
+- this still teaches VM setup, container deployment, env management, logs, ports, CI/CD, and health checks
+
+So local teaches the full infra integration picture. EC2 teaches the deployment picture.
+
+## 4. End-to-End Flow
+
+Here is the current end-to-end system flow:
 
 ```mermaid
 flowchart LR
-    Client["API Client / PowerShell"] --> API["Django REST API"]
+    Client["Client"] --> API["Django API"]
     API --> PG["PostgreSQL"]
-    API --> Redis["Redis"]
+    API --> Redis["Redis Cache"]
     API --> DirectKafka["Direct Kafka Topic"]
     Redis --> Celery["Celery Worker"]
     Celery --> PG
     PG --> Debezium["Kafka Connect + Debezium"]
-    Debezium --> CDCKafka["CDC Kafka Topic"]
-    DirectKafka --> Consumer["Python Kafka Consumer"]
-    CDCKafka --> Consumer
+    Debezium --> CDCTopic["Kafka CDC Topic"]
+    DirectKafka --> Consumer["Kafka Consumer"]
+    CDCTopic --> Consumer
+    Dev["Git Push"] --> CI["GitHub Actions CI"]
+    CI --> CD["GitHub Actions CD"]
+    CD --> EC2["EC2 Docker Compose Stack"]
 ```
 
-In plain English:
+Plain-English version:
 
-1. You call the Django API.
-2. Django writes business data into PostgreSQL.
-3. Django can read/write Redis cache for fast temporary data.
-4. Django can publish selected application events directly to Kafka.
-5. Django schedules async work through Celery.
-6. Redis acts as the Celery message broker.
-7. Celery picks up the task and updates the order.
-8. Debezium watches PostgreSQL committed changes.
-9. Debezium publishes those changes into Kafka.
-10. The Kafka consumer reads both direct events and database-change events.
+1. a request hits Django
+2. Django writes to PostgreSQL
+3. Django may use Redis cache
+4. Django may schedule async work in Celery
+5. Celery consumes the task from Redis and updates data
+6. PostgreSQL changes can be captured by Debezium into Kafka
+7. Django can also publish directly to Kafka without CDC
+8. Kafka consumer reads both kinds of Kafka events
+9. GitHub Actions checks the code in CI
+10. GitHub Actions can deploy the code to EC2 in CD
 
-## 3. Repository Layout
-
-The important folders right now are:
-
-```text
-backend/
-  manage.py
-  retailflow/
-    settings.py
-    celery.py
-    urls.py
-  apps/
-    inventory/
-    orders/
-    replenishment/
-    events/
-
-infra/
-  docker-compose/
-    docker-compose.local.yml
-    debezium-postgres.json
-
-workers/
-  kafka_consumer/
-    main.py
-
-docs/
-  design/
-  lld/
-  project-explainer.md
-
-scripts/
-  local/
-
-.github/
-  workflows/
-```
-
-How to read this structure:
-
-- `backend/` is the main Django service.
-- `backend/apps/` contains domain modules.
-- `infra/docker-compose/` contains local infrastructure containers.
-- `workers/kafka_consumer/` contains the standalone Kafka consumer.
-- `backend/Dockerfile` builds the API image and is reused by the Celery worker.
-- `workers/kafka_consumer/Dockerfile` builds the Kafka consumer image.
-- `docs/` contains explanation and design documentation.
-- `.github/workflows/` contains early CI/CD workflow placeholders.
-
-## 4. Infrastructure Components
+## 5. Infrastructure Components and Why They Exist
 
 ### PostgreSQL
 
 PostgreSQL is the source of truth.
 
-It stores:
+Why we use it:
 
-- Stores
-- Warehouses
-- SKUs
-- Inventory balances
-- Orders
-- Order lines
-- Event logs
+- stores business data
+- supports relational consistency
+- supports transactions
+- supports logical replication, which Debezium uses for CDC
 
-Configured in:
+Current usage:
 
-```text
-infra/docker-compose/docker-compose.local.yml
-backend/retailflow/settings.py
-.env
-.env.example
-```
+- stores inventory, warehouses, stores, SKUs, orders, order lines
+- local stack exposes it on host port `5433` to avoid conflict with an existing local Postgres
+- EC2 stack keeps it internal to Docker
 
-Important Docker Compose config:
+Main files:
 
-```yaml
-postgres:
-  image: postgres:16
-  container_name: retailflow-postgres
-  ports:
-    - "5433:5432"
-```
-
-Why `5433:5432`?
-
-- `5432` is the port inside the container.
-- `5433` is the port exposed on your laptop.
-- This avoids conflict with another local PostgreSQL already using `5432`.
-
-Important CDC config:
-
-```yaml
-command:
-  - postgres
-  - -c
-  - wal_level=logical
-  - -c
-  - max_wal_senders=10
-  - -c
-  - max_replication_slots=10
-```
-
-This enables logical replication, which Debezium needs to read committed database changes.
+- [backend/retailflow/settings.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\settings.py)
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
 
 ### Redis
 
-Redis is currently used in two ways:
+Redis plays two roles right now:
 
-- Celery broker/result backend.
-- Django cache backend.
+1. Celery broker/result backend
+2. Django cache backend
 
-Configured in:
+Why we use it:
 
-```text
-infra/docker-compose/docker-compose.local.yml
-backend/retailflow/settings.py
-```
+- very fast in-memory store
+- simple for queue transport in learning projects
+- easy way to demonstrate cache behavior
 
-Important settings:
+Current split:
 
-```python
-CELERY_BROKER_URL = redis://localhost:6379/0
-CELERY_RESULT_BACKEND = redis://localhost:6379/1
-```
+- DB `0`: Celery broker
+- DB `1`: Celery results
+- DB `2`: Django cache
 
-Important cache setting:
+Main files:
 
-```python
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": "redis://localhost:6379/2",
-    }
-}
-```
-
-Database usage split:
-
-- Redis DB `0`: Celery broker.
-- Redis DB `1`: Celery results.
-- Redis DB `2`: Django cache.
-
-Role in the flow:
-
-- Django creates a Celery task message.
-- Redis stores that message.
-- Celery worker consumes the message.
-- Celery executes the background job.
-- Django can store short-lived cache values independently of Celery.
+- [backend/retailflow/settings.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\settings.py)
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
 
 ### Celery
 
-Celery handles async work outside the API request path.
+Celery handles work that should not happen directly inside the API request.
 
-Configured in:
+Why we use it:
 
-```text
-backend/retailflow/celery.py
-backend/retailflow/__init__.py
-backend/retailflow/settings.py
-backend/apps/orders/tasks.py
-```
+- separates request-response work from background processing
+- models real backend systems better than doing everything synchronously
+- lets us learn retry and worker concepts
 
-The project-level Celery app is:
+Current task behavior is intentionally simple:
 
-```text
-backend/retailflow/celery.py
-```
+- order is created in Django
+- a Celery task is scheduled after commit
+- Celery marks the order as `processing`
 
-The current business task is:
+This is simple business logic, but enough to make async infrastructure real.
 
-```text
-backend/apps/orders/tasks.py
-```
+Main files:
 
-Current task responsibility:
-
-- Load an order by ID.
-- Mark it as `processing`.
-- Save the order.
-
-Current Celery annotation:
-
-```python
-@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-```
-
-Meaning:
-
-- `shared_task`: makes this function a Celery task.
-- `bind=True`: gives access to the task instance as `self`.
-- `autoretry_for=(Exception,)`: retry if an exception happens.
-- `retry_backoff=True`: wait progressively longer between retries.
-- `max_retries=3`: retry up to three times.
+- [backend/retailflow/celery.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\celery.py)
+- [backend/apps/orders/tasks.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\tasks.py)
+- [backend/apps/orders/serializers.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\serializers.py)
 
 ### Kafka
 
-Kafka is the event streaming layer.
+Kafka is the event transport layer.
 
-Configured in:
+Why we use it:
 
-```text
-infra/docker-compose/docker-compose.local.yml
-```
+- to learn event streaming concepts
+- to observe direct app events separately from CDC events
+- to understand partitioning, keys, topics, and consumers
 
-Important config:
+Two main Kafka paths exist in this project:
 
-```yaml
-kafka:
-  image: confluentinc/cp-kafka:7.6.1
-  ports:
-    - "9092:9092"
-  environment:
-    KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-```
+1. direct publish path
+2. CDC path through Debezium
 
-Why two listeners?
+Direct path:
 
-- `kafka:29092` is used by other containers in the Docker network.
-- `localhost:9092` is used by programs running on your laptop, like `workers/kafka_consumer/main.py`.
+- Django publishes an event directly to Kafka
 
-Kafka topics currently used by the consumer:
+CDC path:
 
-```text
-retailflow.public.orders_order
-retailflow.direct.order_signals
-retailflow.direct.order_signals.partitioned
-```
+- PostgreSQL change happens
+- Debezium captures it
+- Kafka receives the CDC event
 
-Topic meanings:
+Main files:
 
-- `retailflow.public.orders_order`: created by Debezium from PostgreSQL CDC.
-- `retailflow.direct.order_signals`: receives direct application-published events from Django.
-- `retailflow.direct.order_signals.partitioned`: clean multi-partition demo topic for partitioning experiments.
+- [backend/apps/events/kafka.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\kafka.py)
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+- [workers/kafka_consumer/main.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\workers\kafka_consumer\main.py)
 
-This gives two learning paths:
+### Debezium and Kafka Connect
 
-- CDC path: database change -> Debezium -> Kafka.
-- Direct path: application code -> Kafka.
+Debezium is how we demonstrate CDC.
 
-### Zookeeper
+Why we use it:
 
-Zookeeper supports this Confluent Kafka image.
+- teaches how database changes become stream events
+- shows the difference between application-published events and database-derived events
+- is very common in event-driven data platforms
 
-Configured in:
+Kafka Connect hosts the Debezium connector.
 
-```text
-infra/docker-compose/docker-compose.local.yml
-```
+Important idea:
 
-It is not business-facing. It exists because this Kafka image uses Zookeeper for broker coordination.
+- Debezium does not replace application logic
+- it observes committed database changes and publishes them to Kafka
 
-### Kafka Connect
+Main files:
 
-Kafka Connect runs connectors that move data into or out of Kafka.
+- [infra/docker-compose/debezium-postgres.json](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\debezium-postgres.json)
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
 
-Configured in:
+### Docker Compose
 
-```text
-infra/docker-compose/docker-compose.local.yml
-```
+Docker Compose is the runtime orchestrator for this project today.
 
-Important config:
+Why we use it:
 
-```yaml
-kafka-connect:
-  image: debezium/connect:2.7.0.Final
-  ports:
-    - "8083:8083"
-  environment:
-    BOOTSTRAP_SERVERS: kafka:29092
-    GROUP_ID: retailflow-connect
-    CONFIG_STORAGE_TOPIC: retailflow_connect_configs
-    OFFSET_STORAGE_TOPIC: retailflow_connect_offsets
-    STATUS_STORAGE_TOPIC: retailflow_connect_status
-```
+- runs multiple services together
+- keeps local setup reproducible
+- gives us a simple deployment mechanism on EC2
 
-Kafka Connect exposes an HTTP API at:
+This is a good stepping stone before Kubernetes.
 
-```text
-http://localhost:8083
-```
+Main files:
 
-You use that API to register the Debezium connector.
+- [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+- [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
 
-### Debezium CDC
+### GitHub Actions CI
 
-Debezium reads database changes from PostgreSQL and publishes them to Kafka.
+CI answers one question:
 
-Configured in:
+"Is this codebase still healthy enough to merge and deploy?"
 
-```text
-infra/docker-compose/debezium-postgres.json
-```
+Current CI checks:
 
-Important connector config:
+- install Python dependencies
+- run `ruff`
+- run Django system checks
+- ensure no pending migrations are missing
+- run migrations in CI database
+- run pytest
+- build Docker images
 
-```json
-{
-  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-  "database.hostname": "postgres",
-  "database.port": "5432",
-  "topic.prefix": "retailflow",
-  "plugin.name": "pgoutput",
-  "slot.name": "retailflow_debezium",
-  "publication.autocreate.mode": "filtered",
-  "table.include.list": "public.orders_order,public.orders_orderline,public.inventory_inventorybalance"
-}
-```
+Main file:
 
-Important meanings:
+- [.github/workflows/ci.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\ci.yml)
 
-- `connector.class`: tells Kafka Connect to run the Debezium PostgreSQL connector.
-- `database.hostname`: uses Docker service name `postgres`, not `localhost`.
-- `database.port`: uses container-internal PostgreSQL port `5432`.
-- `topic.prefix`: all Debezium topics start with `retailflow`.
-- `plugin.name`: uses PostgreSQL `pgoutput` logical decoding.
-- `slot.name`: PostgreSQL replication slot used by Debezium.
-- `publication.autocreate.mode`: Debezium creates a filtered publication for selected tables.
-- `table.include.list`: only these tables are streamed.
+### GitHub Actions CD
 
-Current streamed tables:
+CD answers a different question:
 
-- `public.orders_order`
-- `public.orders_orderline`
-- `public.inventory_inventorybalance`
+"Can we take the selected branch and update the real EC2 runtime safely?"
 
-Current important topic:
+Current CD flow:
 
-```text
-retailflow.public.orders_order
-```
+1. manual workflow trigger
+2. load SSH key from GitHub secrets
+3. trust the EC2 host with `ssh-keyscan`
+4. SSH into EC2
+5. `git fetch`
+6. `git checkout`
+7. `git pull`
+8. run deployment script
+9. run health check from inside the EC2 machine
 
-## 5. Business Domain
+Main file:
 
-The project models a retail inventory and replenishment backend.
+- [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
 
-Current business entities:
+### EC2
 
-- Store: a retail store placing demand.
-- Warehouse: a fulfillment location holding inventory.
-- SKU: a sellable product.
-- InventoryBalance: stock position for one SKU in one warehouse.
-- Order: demand from a store.
-- OrderLine: requested SKU and quantity inside an order.
-- EventLog: placeholder for future event auditing.
+EC2 is the first cloud runtime target.
 
-## 6. Current Business Flow
+Why we used EC2 first:
 
-The implemented flow is intentionally small but end-to-end.
+- simple mental model
+- very useful for learning VM operations
+- avoids the cost and complexity of EKS
+- good fit for Docker Compose
+- still teaches networking, SSH, security groups, environment files, deployment, and logs
 
-### Order Creation Flow
+Main support files:
 
-1. API client sends an order request.
-2. `OrderCreateView` receives the request.
-3. `OrderCreateSerializer` validates and creates the order.
-4. The serializer creates `Order` and `OrderLine` records in one database transaction.
-5. After the transaction commits, Django schedules `process_order.delay(order.id)`.
-6. Celery worker picks up the task from Redis.
-7. Celery updates order status from `created` to `processing`.
-8. PostgreSQL records the insert and update.
-9. Debezium reads those committed table changes.
-10. Debezium publishes change events to Kafka.
-11. Kafka consumer reads the order topic and prints the event.
+- [scripts/aws/ec2-bootstrap.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\ec2-bootstrap.sh)
+- [scripts/aws/deploy-ec2.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\deploy-ec2.sh)
+- [infra/ec2/.env.ec2.example](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\ec2\.env.ec2.example)
 
-### Why `transaction.on_commit` Matters
+## 6. The Files to Study First
 
-The Celery task is scheduled only after the database transaction commits.
+If you want to understand the project top down, read files in this order:
 
-That prevents this bad timing problem:
+1. [README.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\README.md)
+2. [running.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\running.md)
+3. [infra/docker-compose/docker-compose.local.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.local.yml)
+4. [infra/docker-compose/docker-compose.ec2.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\docker-compose.ec2.yml)
+5. [backend/retailflow/settings.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\settings.py)
+6. [backend/retailflow/celery.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\retailflow\celery.py)
+7. [backend/apps/orders/serializers.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\serializers.py)
+8. [backend/apps/orders/tasks.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\orders\tasks.py)
+9. [backend/apps/events/kafka.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\kafka.py)
+10. [infra/docker-compose/debezium-postgres.json](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\docker-compose\debezium-postgres.json)
+11. [workers/kafka_consumer/main.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\workers\kafka_consumer\main.py)
+12. [.github/workflows/ci.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\ci.yml)
+13. [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
 
-- API creates order inside transaction.
-- Celery starts too early.
-- Celery tries to read an order that is not committed yet.
+That order mirrors how the system is understood:
 
-So the current design says: first commit data, then schedule async work.
+runtime shape -> app config -> async config -> event config -> deployment automation
 
-## 7. Module Responsibilities
+## 7. What We Did to Set Up the Project
 
-### `backend/apps/inventory/models.py`
+This section is the practical "what steps did we actually perform and why" part.
 
-Owns inventory-side domain objects:
+### Step 1: Create the Django service and domain modules
 
-- `Store`
-- `Warehouse`
-- `Sku`
-- `InventoryBalance`
+Why:
 
-Current responsibility:
+- we needed a real application to attach infra to
 
-- Represent stock and fulfillment data.
-- Provide data needed by order creation and future allocation logic.
+What matters:
 
-### `backend/apps/orders/models.py`
+- `inventory`, `orders`, `events`, and `replenishment` apps exist
+- order creation became the main flow we use to exercise infra
 
-Owns order-side domain objects:
+### Step 2: Add PostgreSQL locally through Docker Compose
 
-- `Order`
-- `OrderLine`
+Why:
 
-Current responsibility:
+- local database setup should be reproducible
+- Docker avoids machine-specific DB setup problems
 
-- Represent customer/store demand.
-- Track order status.
-- Store requested and allocated quantities.
+Important choice:
 
-### `backend/apps/orders/serializers.py`
+- local host port `5433` was used instead of `5432`
+- this avoids conflict with an existing local Postgres on the laptop
 
-Owns the current order write workflow.
+### Step 3: Add Redis locally
 
-Current responsibility:
+Why:
 
-- Validate incoming order payloads.
-- Create `Order`.
-- Create child `OrderLine` records.
-- Schedule Celery task after commit.
+- needed for Celery and cache demo
 
-This is currently the central business-flow file.
+What we configured:
 
-### `backend/apps/orders/tasks.py`
+- Celery broker URL
+- Celery result backend
+- Django cache backend
 
-Owns async order processing.
+### Step 4: Add Celery task execution
 
-Current responsibility:
+Why:
 
-- Receive order ID from Celery.
-- Update order status to `processing`.
+- we wanted background processing to be visible
 
-Future responsibility:
+Important design:
 
-- Reserve stock.
-- Allocate warehouse inventory.
-- Reject orders if stock is not available.
-- Emit notification/report events.
+- task is scheduled with `transaction.on_commit`
 
-### `backend/apps/events/views.py`
+Why that matters:
 
-Owns infrastructure learning endpoints.
+- Celery should only run after the order transaction is successfully committed
 
-Current responsibility:
+### Step 5: Add Kafka, Zookeeper, Kafka Connect, and Debezium locally
 
-- `CacheProbeView`: reads and writes a Redis-backed Django cache key.
-- `DirectEventPublishView`: accepts a small JSON payload and publishes it directly to Kafka.
+Why:
 
-### `backend/apps/events/kafka.py`
+- we wanted to understand event streaming and CDC, not just request-response applications
 
-Owns direct Kafka producer behavior.
+What we configured:
 
-Current responsibility:
+- Kafka broker
+- Kafka Connect REST API
+- Debezium PostgreSQL connector
+- logical replication settings in PostgreSQL
 
-- Create a Kafka producer using `KAFKA_BOOTSTRAP_SERVERS`.
-- Publish JSON messages to `KAFKA_DIRECT_TOPIC`.
+### Step 6: Add direct Kafka publishing from Django
 
-### `backend/retailflow/settings.py`
+Why:
 
-Owns application configuration.
+- this makes it easy to compare:
+  - application-emitted events
+  - CDC-generated events
 
-Current responsibility:
+What we added:
 
-- Read `.env`.
-- Configure PostgreSQL.
-- Configure Django REST Framework.
-- Configure Celery broker/result backend.
-- Configure Redis cache.
-- Configure direct Kafka producer settings.
+- a direct publish endpoint
+- partition-key strategies
+- delivery metadata in the response
 
-### `backend/retailflow/celery.py`
+### Step 7: Add a Kafka consumer
 
-Owns Celery application bootstrapping.
+Why:
 
-Current responsibility:
+- a Kafka topic without a consumer is hard to learn from
 
-- Create Celery app.
-- Load settings from Django settings.
-- Auto-discover `tasks.py` files inside installed Django apps.
+What it does:
 
-### `workers/kafka_consumer/main.py`
+- subscribes to CDC topics and direct topics
+- classifies message origin
+- prints topic, partition, offset, key, and payload
 
-Owns Kafka consumption outside Django.
+### Step 8: Dockerize the app services
 
-Current responsibility:
+Why:
 
-- Connect to Kafka at `localhost:9092`.
-- Subscribe to `retailflow.public.orders_order`.
-- Subscribe to `retailflow.direct.order_signals`.
-- Subscribe to `retailflow.direct.order_signals.partitioned`.
-- Poll messages.
-- Classify messages as direct app events or Debezium CDC events.
-- Print a normalized summary plus the raw payload.
-- Commit offsets manually after processing.
+- we wanted local runtime and EC2 runtime to look similar
 
-## 8. Config Files To Study First
+What we added:
 
-Read these in this order:
+- backend Dockerfile
+- Kafka consumer Dockerfile
+- Compose services for app containers
 
-1. `infra/docker-compose/docker-compose.local.yml`
-2. `.env.example`
-3. `backend/retailflow/settings.py`
-4. `backend/retailflow/celery.py`
-5. `backend/apps/orders/serializers.py`
-6. `backend/apps/orders/tasks.py`
-7. `backend/apps/events/views.py`
-8. `backend/apps/events/kafka.py`
-9. `infra/docker-compose/debezium-postgres.json`
-10. `workers/kafka_consumer/main.py`
+### Step 9: Add CI
 
-This order mirrors the real runtime flow:
+Why:
 
-Infrastructure -> environment -> Django config -> Redis cache -> direct Kafka -> business write -> async task -> CDC -> event consumer.
+- once infra grows, manual confidence is not enough
 
-## 9. Commands Run So Far
+What CI now checks:
 
-### Create Virtual Environment
+- lint
+- Django project health
+- migration drift
+- tests
+- Docker build validity
+
+### Step 10: Prepare EC2 deployment files
+
+Why:
+
+- EC2 runtime needs a different shape than local full stack
+
+What we added:
+
+- EC2 Compose file
+- EC2 env template
+- EC2 bootstrap script
+- EC2 deploy script
+
+### Step 11: Launch and configure EC2
+
+Why:
+
+- this is where local-only work becomes deployment work
+
+What happened:
+
+- EC2 instance launched in `ap-south-1`
+- Docker installed on the VM
+- repo cloned on the VM
+- `.env.ec2` created
+- reduced stack brought up with Docker Compose
+
+### Step 12: Add CD
+
+Why:
+
+- once manual deployment works, next step is repeatable deployment
+
+What CD now does:
+
+- GitHub Actions logs into EC2 via SSH
+- updates repo state on the VM
+- runs the deployment script
+- verifies `/health/` from inside the VM
+
+This last part matters. We intentionally changed health checking to happen inside EC2 because public-network checks from GitHub-hosted runners were flaky for this setup.
+
+## 8. Secrets and Why They Matter
+
+This project now uses secrets in two main places:
+
+### A. Local and EC2 Environment Files
+
+Examples:
+
+- `.env`
+- `infra/ec2/.env.ec2`
+
+Used for:
+
+- Django secret key
+- DB credentials
+- allowed hosts
+- Redis URLs
+- Kafka settings
+
+Why use env files:
+
+- keeps config separate from code
+- lets local and EC2 values differ
+- avoids hardcoding secrets into Python modules
+
+### B. GitHub Actions Repository Secrets
+
+Current deployment secrets:
+
+- `EC2_HOST`
+- `EC2_USER`
+- `EC2_APP_DIR`
+- `EC2_SSH_PRIVATE_KEY`
+- `DEPLOY_HEALTHCHECK_HOST`
+
+What each one is for:
+
+- `EC2_HOST`: public IP or hostname used by SSH
+- `EC2_USER`: Linux user, currently `ubuntu`
+- `EC2_APP_DIR`: path where the repo is cloned on EC2
+- `EC2_SSH_PRIVATE_KEY`: private key used by GitHub Actions to SSH into EC2
+- `DEPLOY_HEALTHCHECK_HOST`: originally used for external health checks; still part of the repo secrets set even though health is now checked from inside EC2
+
+How they are kept safer than hardcoding:
+
+- GitHub stores secret values encrypted
+- workflow logs mask secret values
+- collaborators can use the workflow without the values being printed in code
+
+Important nuance:
+
+- secrets are safer than hardcoding, but they are not magic
+- if a workflow prints a secret explicitly, that is still dangerous
+- if a private key is leaked outside GitHub, it should be rotated
+
+## 9. Security Groups and the Current Tradeoff
+
+Yes, your instinct is right: opening `0.0.0.0/0` exposes the port publicly.
+
+Current temporary learning-stage behavior may include:
+
+- SSH port `22` open to `0.0.0.0/0`
+- API port `8000` open to `0.0.0.0/0`
+
+Why this happened:
+
+- GitHub-hosted runners do not come from one fixed IP
+- we needed the workflow and testing path to work quickly
+
+Why this is not the long-term target:
+
+- it increases public exposure
+- it is acceptable for a temporary dev learning environment, not for a hardened setup
+
+Later cleanup options:
+
+- use a reverse proxy or ALB
+- keep app private and verify only over SSH
+- restrict SSH more tightly
+- move database to RDS and keep DB private
+
+## 10. CI and CD in Simple Language
+
+### CI
+
+CI means:
+
+"Whenever code changes, automatically verify that the codebase is still healthy."
+
+In this project, CI currently does:
+
+1. checkout code
+2. set up Python
+3. install dependencies
+4. start Postgres and Redis service containers
+5. run lint
+6. run Django checks
+7. verify no migrations are missing
+8. run migrations
+9. run tests
+10. build Docker images
+
+So CI protects the repo from obvious breakage.
+
+### CD
+
+CD means:
+
+"Take already-versioned code and move it into the deployment environment in a repeatable way."
+
+In this project, CD currently does:
+
+1. manually trigger deployment from GitHub Actions
+2. open SSH capability using the stored private key
+3. connect to EC2
+4. pull the selected branch
+5. run the deployment script
+6. verify app health on the EC2 machine
+
+So CI is the quality gate. CD is the update mechanism.
+
+## 11. Key Commands We Used
+
+### Local setup
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-### Install Dependencies
-
-```powershell
 .\.venv\Scripts\python -m pip install -r backend\requirements\dev.txt
 ```
 
-### Generate Migrations
-
-```powershell
-.\.venv\Scripts\python backend\manage.py makemigrations inventory orders events replenishment
-```
-
-### Validate Django Project
-
-```powershell
-.\.venv\Scripts\python backend\manage.py check
-```
-
-### Validate Linting
-
-```powershell
-.\.venv\Scripts\ruff check backend workers
-```
-
-### Validate Docker Compose
-
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml config
-```
-
-### Start PostgreSQL And Redis
+### Local infra startup
 
 ```powershell
 docker compose -f infra\docker-compose\docker-compose.local.yml up -d postgres redis
-```
-
-### Run Migrations
-
-```powershell
-.\.venv\Scripts\python backend\manage.py migrate
-```
-
-### Start Django API
-
-```powershell
-.\.venv\Scripts\python backend\manage.py runserver
-```
-
-### Start Celery Worker
-
-Run from the `backend` directory:
-
-```powershell
-C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.venv\Scripts\celery -A retailflow worker -l info
-```
-
-### Start Kafka Stack
-
-```powershell
 docker compose -f infra\docker-compose\docker-compose.local.yml up -d zookeeper kafka kafka-connect
-```
-
-### Register Debezium Connector
-
-PowerShell version:
-
-```powershell
-$connectorConfig = Get-Content -Raw "infra\docker-compose\debezium-postgres.json"
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8083/connectors" `
-  -ContentType "application/json" `
-  -Body $connectorConfig
-```
-
-### Check Kafka Connect Connectors
-
-```powershell
-Invoke-RestMethod "http://localhost:8083/connectors"
-```
-
-### Check Debezium Connector Status
-
-```powershell
-Invoke-RestMethod "http://localhost:8083/connectors/retailflow-postgres-connector/status"
-```
-
-### Start Kafka Consumer
-
-```powershell
-.\.venv\Scripts\python workers\kafka_consumer\main.py
-```
-
-## 10. Useful Verification Commands
-
-### Docker Containers
-
-```powershell
-docker ps
-```
-
-### Container Logs
-
-```powershell
-docker logs retailflow-postgres
-docker logs retailflow-redis
-docker logs retailflow-kafka
-docker logs retailflow-kafka-connect
-```
-
-### Stop Containers Without Deleting Data
-
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml down
-```
-
-### Stop Containers And Delete PostgreSQL Volume
-
-Only use this when you want a fresh local database.
-
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml down -v
-```
-
-### Health Check API
-
-```powershell
-Invoke-RestMethod "http://localhost:8000/health/"
-```
-
-### Inventory API
-
-```powershell
-Invoke-RestMethod "http://localhost:8000/api/inventory/balances/"
-```
-
-### Redis Cache Probe
-
-```powershell
-Invoke-RestMethod "http://localhost:8000/api/events/cache-probe/"
-```
-
-Expected behavior:
-
-- Response `cache_value` increases on each request.
-- Value is stored in Redis DB `2`.
-- Value expires after 300 seconds.
-
-### Publish Direct Kafka Event
-
-```powershell
-$body = @{
-  event_type = "order.signal.created"
-  payload = @{
-    order_id = 101
-    store_code = "BLR-001"
-    signal = "manual-direct-kafka-test"
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8000/api/events/direct-publish/" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Expected behavior:
-
-- API returns HTTP `202`.
-- Kafka consumer prints a message from `retailflow.direct.order_signals`.
-
-### Create Direct Kafka Topic With Partitions
-
-```powershell
-.\scripts\kafka\create-direct-topic.ps1 retailflow.direct.order_signals.partitioned 3 1
-```
-
-Meaning:
-
-- Topic: `retailflow.direct.order_signals.partitioned`
-- Partitions: `3`
-- Replication factor: `1`, because local Kafka has one broker.
-
-Describe the topic:
-
-```powershell
-.\scripts\kafka\describe-topic.ps1 retailflow.direct.order_signals.partitioned
-```
-
-List all topics:
-
-```powershell
-.\scripts\kafka\list-topics.ps1
-```
-
-Read the direct topic with Kafka CLI:
-
-```powershell
-.\scripts\kafka\read-direct-topic.ps1 retailflow.direct.order_signals.partitioned
-```
-
-### Publish With Different Partition Keys
-
-By default, direct Kafka publishing uses `event_type` as the Kafka key.
-
-Partition by event type:
-
-```powershell
-$body = @{
-  topic = "retailflow.direct.order_signals.partitioned"
-  event_type = "order.signal.created"
-  partition_key_strategy = "event_type"
-  payload = @{
-    order_id = 101
-    store_code = "BLR-001"
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8000/api/events/direct-publish/" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Partition by order ID:
-
-```powershell
-$body = @{
-  topic = "retailflow.direct.order_signals.partitioned"
-  event_type = "order.signal.created"
-  partition_key_strategy = "order_id"
-  payload = @{
-    order_id = 101
-    store_code = "BLR-001"
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8000/api/events/direct-publish/" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Partition by custom key:
-
-```powershell
-$body = @{
-  topic = "retailflow.direct.order_signals.partitioned"
-  event_type = "order.signal.created"
-  partition_key_strategy = "custom"
-  custom_key = "store:BLR-001"
-  payload = @{
-    order_id = 101
-    store_code = "BLR-001"
-  }
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8000/api/events/direct-publish/" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-Expected response includes:
-
-```json
-{
-  "delivery": {
-    "topic": "retailflow.direct.order_signals.partitioned",
-    "partition": 1,
-    "offset": 4
-  }
-}
-```
-
-The exact partition may differ, but the same key should consistently map to the same partition while the topic partition count stays the same.
-
-### Kafka Consumer Classification
-
-When the consumer reads a message, it classifies the topic:
-
-- `retailflow.public.*` -> `debezium_cdc`
-- `retailflow.direct.*` -> `direct_app_event`
-
-This makes the local logs easier to read because each message includes:
-
-- classification
-- topic
-- partition
-- offset
-- key
-- summary
-- payload
-
-### Create Order
-
-```powershell
-$body = @{
-  store = 1
-  lines = @(
-    @{
-      sku = 1
-      requested_quantity = 3
-    }
-  )
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8000/api/orders/" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-### Read Order
-
-```powershell
-Invoke-RestMethod "http://localhost:8000/api/orders/1/"
-```
-
-## 11. Kafka And Debezium Syntax To Understand
-
-### Kafka Consumer Config
-
-In `workers/kafka_consumer/main.py`:
-
-```python
-{
-    "bootstrap.servers": "localhost:9092",
-    "group.id": "retailflow-order-consumer",
-    "auto.offset.reset": "earliest",
-    "enable.auto.commit": False,
-}
-```
-
-Meaning:
-
-- `bootstrap.servers`: Kafka address used by this process.
-- `group.id`: consumer group name.
-- `auto.offset.reset`: start from earliest available event if no offset exists.
-- `enable.auto.commit`: disabled so the code commits only after processing.
-
-### Topic Subscription
-
-```python
-consumer.subscribe(["retailflow.public.orders_order"])
-```
-
-Meaning:
-
-- The consumer listens to one Debezium-created topic.
-- Topic name follows `topic.prefix.schema.table`.
-
-Current project version subscribes to multiple topics:
-
-```python
-consumer.subscribe([
-    "retailflow.public.orders_order",
-    "retailflow.direct.order_signals",
-    "retailflow.direct.order_signals.partitioned",
-])
-```
-
-Meaning:
-
-- One consumer can observe both CDC events and direct app-published events.
-- This makes the difference between the two event styles visible while running locally.
-- The consumer also prints a normalized summary so the Debezium envelope is easier to scan.
-
-### Kafka Partitioning
-
-Kafka assigns a message to a partition using either:
-
-- An explicit partition number, if the producer provides one.
-- A hash of the message key, if the message has a key.
-- A producer strategy, often round-robin/sticky behavior, if there is no key.
-
-This project uses keyed partitioning for direct app events.
-
-Current strategies:
-
-- `event_type`: all events of the same type usually go to the same partition.
-- `order_id`: all events for the same order usually go to the same partition.
-- `custom`: lets you experiment with keys like `store:BLR-001`.
-
-Why `order_id` is useful:
-
-- All events for one order stay ordered relative to each other.
-- Different orders can spread across partitions.
-
-Why `event_type` is useful:
-
-- Easy to understand.
-- Good for demos.
-- Less ideal if one event type is much more common than others, because one partition can become hot.
-
-### Direct Kafka Producer
-
-In `backend/apps/events/kafka.py`:
-
-```python
-producer = Producer({"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS})
-producer.produce(topic, key=event_type, value=json_payload)
-producer.flush(10)
-```
-
-Meaning:
-
-- Django creates a producer connected to Kafka.
-- `produce` queues the message for the configured topic.
-- `flush` waits briefly so the local demo can confirm delivery immediately.
-
-### Polling Messages
-
-```python
-message = consumer.poll(1.0)
-```
-
-Meaning:
-
-- Wait up to one second for a Kafka message.
-- If no message arrives, loop again.
-
-### Manual Offset Commit
-
-```python
-consumer.commit(message=message)
-```
-
-Meaning:
-
-- The consumer records that this message has been handled.
-- In production, this should happen after real processing succeeds.
-
-### Debezium Connector Registration
-
-```powershell
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "http://localhost:8083/connectors" `
-  -ContentType "application/json" `
-  -Body $connectorConfig
-```
-
-Meaning:
-
-- You are calling Kafka Connect's REST API.
-- Kafka Connect reads the JSON body.
-- It starts a Debezium connector task.
-- Debezium begins reading PostgreSQL changes.
-
-## 12. Docker Compose Management
-
-Docker Compose is currently the local infrastructure controller.
-
-The main file:
-
-```text
-infra/docker-compose/docker-compose.local.yml
-```
-
-Start selected services:
-
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml up -d postgres redis
-```
-
-Start all infrastructure services:
-
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml up -d
-```
-
-Start the full containerized application stack:
-
-```powershell
 docker compose -f infra\docker-compose\docker-compose.local.yml up -d --build
 ```
 
-This now includes:
-
-- `api`
-- `celery-worker`
-- `kafka-consumer`
-- `postgres`
-- `redis`
-- `zookeeper`
-- `kafka`
-- `kafka-connect`
-
-Recreate a service after config changes:
+### Django and tests
 
 ```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml up -d --force-recreate postgres
+.\.venv\Scripts\python backend\manage.py migrate
+.\.venv\Scripts\python backend\manage.py check
+.\.venv\Scripts\python -m pytest
 ```
 
-See service status:
+### Debezium connector registration
 
 ```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml ps
+$connectorConfig = Get-Content -Raw "infra\docker-compose\debezium-postgres.json"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8083/connectors" -ContentType "application/json" -Body $connectorConfig
 ```
 
-Read logs:
+### EC2 bootstrap and deploy
 
-```powershell
-docker compose -f infra\docker-compose\docker-compose.local.yml logs kafka-connect
+```bash
+bash scripts/aws/ec2-bootstrap.sh
+cp infra/ec2/.env.ec2.example infra/ec2/.env.ec2
+bash scripts/aws/deploy-ec2.sh
 ```
 
-## 13. Current Limitations
+### GitHub deployment workflow behavior
 
-The current implementation is a working learning milestone, not the finished product.
+Implemented in:
 
-Current limitations:
+- [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
 
-- Order processing only moves status to `processing`.
-- No real inventory allocation yet.
-- No idempotency lookup behavior yet, even though the field exists.
-- No automated seed command yet.
-- Kafka consumer classifies and prints events, but it does not persist or route them yet.
-- No SQS/SNS/S3/Lambda integration yet.
-- The full containerized stack still needs local runtime verification after image builds.
-- No Kubernetes manifests implemented yet.
-- CI now runs lint, Django checks, migration checks, focused tests, and Docker image builds.
+## 12. Current V1 Boundaries
 
-## 14. Next Recommended Steps
+What is complete enough to call V1 from an infra learning perspective:
 
-The next steps should prioritize infrastructure integrations while keeping business logic minimal.
+- app + DB + cache + worker local setup
+- event streaming local setup
+- CDC local setup
+- Dockerized runtime
+- CI pipeline
+- CD pipeline
+- EC2 deployment
 
-### Step 1: Add Repeatable Infra Demos
+What is intentionally still simple:
 
-Add small endpoints and scripts that exercise one tool at a time:
+- business logic
+- order processing depth
+- event routing beyond logging
+- managed AWS services
+- hardened cloud networking
+- Terraform-managed infrastructure
 
-- Redis cache probe.
-- Direct Kafka publisher.
-- Celery task trigger.
-- Debezium connector status check.
-- Kafka topic inspection commands.
+So yes: we have covered a major infra milestone, and the next steps are mostly about improving or extending the current foundation rather than proving the foundation exists.
 
-Why:
+## 13. Recommended Next-Step Order
 
-- Makes each infrastructure component observable in isolation.
+Best order from here:
 
-### Step 2: Add Seed Command
+1. move PostgreSQL from EC2 container to RDS
+2. tighten EC2 security groups and deployment exposure
+3. refine CD flow and environment discipline
+4. add small AWS integrations like SQS, SNS, S3, or Lambda
+5. introduce Terraform for AWS resources when the manual understanding is already clear
 
-Create a repeatable Django management command that inserts a store, warehouse, SKU, and inventory balance.
+Why this order:
 
-Why:
+- RDS is the cleanest next architecture improvement
+- security hardening should follow once the runtime path is stable
+- AWS service integrations make more sense after app and DB runtime are cleaner
+- Terraform is most useful once you understand what you are automating
 
-- Avoid manual shell setup.
-- Make demos repeatable.
+## 14. Final Mental Model
 
-### Step 3: Make Business Logic Just Real Enough
+If you want one simple sentence to remember the project:
 
-Keep order processing minimal but realistic:
-
-- Reads requested order lines.
-- Finds available inventory.
-- Optionally reserves stock.
-- Sets order to `allocated` or `rejected`.
-
-Why:
-
-- Gives Redis, Celery, Kafka, and CDC meaningful events without over-investing in business complexity.
-
-### Step 4: Improve Kafka Consumer Behavior
-
-Move from printing events to simple event routing.
-
-Possible behavior:
-
-- If topic is `retailflow.direct.order_signals`, store an `EventLog`.
-- If topic is `retailflow.public.orders_order`, normalize the Debezium payload.
-- Later, publish selected events to SQS.
-
-### Step 5: Add Tests For Infra Integration Boundaries
-
-Add focused tests for:
-
-- Cache endpoint contract.
-- Direct Kafka producer wrapper with mocked producer.
-- Celery task behavior.
-- API order creation.
-
-Why:
-
-- Keeps CI practical without requiring Kafka in every unit test.
-
-### Step 6: Verify Full Containerized Runtime
-
-Use Docker Compose to run:
-
-- API
-- Celery worker
-- Kafka consumer
-- Postgres
-- Redis
-- Kafka
-- Kafka Connect
-
-Why:
-
-- This is the closest local shape to what we will later deploy to EC2.
-
-### Step 7: Add Tests For Containerized And Infra Boundaries
-
-Add focused tests and CI checks for:
-
-- Django checks
-- order API
-- cache endpoint
-- direct Kafka producer wrapper
-- Docker image builds
-
-Current status:
-
-- Cache endpoint tests added.
-- Direct Kafka producer helper tests added.
-- CI workflow runs these checks automatically.
-
-### Step 8: Add Local Kubernetes Manifests
-
-Use Docker Desktop Kubernetes for:
-
-- API deployment.
-- Celery worker deployment.
-- Kafka consumer deployment.
-- Redis deployment.
-- ConfigMaps and Secrets.
-
-PostgreSQL can initially remain local/Compose or run as a simple local Kubernetes workload for learning.
-
-### Step 9: Add AWS Free-Tier Integrations
-
-Add carefully:
-
-- S3 for tiny report files.
-- SQS for low-volume event queueing.
-- SNS for notification fan-out.
-- Lambda for lightweight SQS processing.
-- Optional RDS PostgreSQL only after Free Tier eligibility is confirmed.
-
-## 15. Mental Model To Keep
-
-Think of this project in layers:
-
-```text
-Business API
-  Django REST endpoint creates orders.
-
-Transaction Store
-  PostgreSQL stores the truth.
-
-Async Work
-  Celery + Redis handle slow/background processing.
-
-Change Data Capture
-  Debezium watches committed PostgreSQL changes.
-
-Event Streaming
-  Kafka transports those changes as events.
-
-Consumers
-  Worker services react to events.
-
-Deployment
-  Docker Compose locally first, Kubernetes locally next, EC2 Docker Compose later.
-```
-
-That is the backbone of the project. Every future phase should attach cleanly to one of these layers.
+RetailFlow Lab is a Django backend that uses PostgreSQL, Redis, Celery, Kafka, Debezium, Docker Compose, GitHub Actions, and EC2 to teach the real path from local infra setup to cloud deployment.

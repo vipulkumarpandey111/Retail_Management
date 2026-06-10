@@ -1,195 +1,175 @@
-# Infra-First Implementation Roadmap
+# Infra-First Roadmap
 
-This roadmap prioritizes infrastructure learning over deep retail business logic. Business behavior should remain realistic enough to generate useful events, but the main goal is understanding how tools integrate.
+This roadmap assumes the current V1 foundation is already in place:
 
-## Current Local Capabilities
+- local full-stack infra works
+- Dockerized runtime works
+- CI works
+- CD works
+- EC2 deployment works
 
-- PostgreSQL runs in Docker Compose on host port `5433`.
-- Redis runs in Docker Compose and is used by both Celery and Django cache.
-- Celery runs locally and uses Redis as broker/result backend.
-- Kafka, Zookeeper, Kafka Connect, and Debezium run in Docker Compose.
-- Debezium captures PostgreSQL changes into Kafka CDC topics.
-- Django can publish direct application events to Kafka.
-- Kafka consumer reads both direct Kafka events and Debezium CDC events.
+So from here onward, the work is less about proving that infra exists and more about improving separation, security, and cloud integrations.
 
-## Next Implementation Flow
+## 1. Current V1 Status
 
-### 1. Kafka Partitioning Demo
+Already implemented:
 
-Goal: understand how Kafka assigns messages to partitions.
+- PostgreSQL in Docker Compose
+- Redis for cache and Celery
+- Celery async task execution
+- Kafka local stack
+- Debezium CDC
+- direct Kafka publishing
+- Kafka consumer classification
+- Dockerized services
+- GitHub Actions CI
+- GitHub Actions CD
+- EC2 deployment using reduced Docker Compose stack
 
-Implementation:
+This means the project already covers the first meaningful backend-infra lifecycle.
 
-- Create `retailflow.direct.order_signals.partitioned` with multiple partitions.
-- Publish messages with different key strategies:
-  - `event_type`
-  - `order_id`
-  - `custom`
-- Observe partition/offset in producer response and consumer logs.
+## 2. What the Next Steps Should Optimize
 
-Why this matters:
+The main categories now are:
 
-- Kafka preserves ordering only within a partition.
-- Same key usually maps to the same partition.
-- Partitioning strategy affects scalability and event ordering.
+### A. Better separation
 
-### 2. Kafka Consumer Classification
+Example:
 
-Goal: make event origins obvious.
+- move database out of EC2 into RDS
 
-Implementation:
+### B. Better security
 
-- If topic starts with `retailflow.public.`, classify as Debezium CDC.
-- If topic starts with `retailflow.direct.`, classify as direct application event.
-- Print normalized event summaries.
-- Later store selected consumed events in `EventLog`.
+Examples:
 
-Current status:
+- reduce public exposure on ports
+- avoid broad `0.0.0.0/0` rules where possible
 
-- Topic classification implemented.
-- Normalized summaries implemented.
-- Event persistence and routing still pending.
+### C. Better cloud integration
 
-### 3. Dockerize Application Services
+Examples:
 
-Goal: move from mixed local processes to containerized services.
+- SQS
+- SNS
+- S3
+- Lambda
 
-Implementation:
+### D. Better infrastructure-as-code
 
-- Add Dockerfile for Django API.
-- Run Celery worker from same image with a different command.
-- Add Dockerfile for Kafka consumer or reuse a shared Python image.
-- Extend Docker Compose to include API, worker, and consumer.
+Examples:
 
-Current status:
+- Terraform for cloud resources
 
-- Dockerfile added for Django API.
-- Celery worker now reuses the backend image.
-- Dockerfile added for Kafka consumer.
-- Compose file now includes API, worker, and consumer services.
+## 3. Recommended Next-Step Order
 
-Why before EC2:
+### Step 1: Move PostgreSQL from EC2 container to RDS
 
-- EC2 Docker Compose deployment should run the same service definitions we already tested locally.
+Why first:
 
-### 4. Verify Full Containerized Runtime
+- biggest architecture improvement
+- very common real-world separation
+- lets the app VM become more stateless
+- teaches managed database thinking
 
-Goal: make sure the all-container local stack behaves like the manual setup.
+What changes:
 
-Implementation:
+- EC2 app containers stop talking to local `postgres`
+- app talks to RDS endpoint instead
+- DB security is handled through VPC and security groups instead of Docker-internal networking
 
-- Build all images with Docker Compose.
-- Start API, worker, consumer, and infra services together.
-- Verify health endpoint, cache probe, direct Kafka publish, and CDC order flow.
+### Step 2: Tighten EC2 networking and deployment exposure
 
-### 5. GitHub Actions CI
+Why second:
 
-Goal: make every push verify the app.
+- once deployment is stable, hardening becomes easier
+- current learning-stage rules may be broader than desired
 
-Implementation:
+Possible improvements:
 
-- Run lint.
-- Run Django checks.
-- Run migration checks.
-- Run tests with Postgres and Redis service containers.
-- Later build Docker images.
+- narrow SSH access
+- narrow port `8000` access depending on the verification path
+- keep health checks internal where possible
 
-Current status:
+### Step 3: Improve CD behavior
 
-- Lint enabled.
-- Django checks enabled.
-- Migration drift check enabled.
-- Focused infra tests enabled.
-- Docker image build verification enabled.
+Why third:
 
-Why before AWS:
+- CD already works, so now it can be refined
 
-- It creates a quality gate before deployment.
+Examples:
 
-### 6. AWS Tooling Setup
+- require CI success before deploy
+- auto-deploy selected branches only
+- define clearer `dev` vs future `prod` flow
 
-Goal: prepare local and CI environments for AWS safely.
+### Step 4: Add one AWS service integration at a time
 
-Implementation:
+Best learning order:
 
-- Install AWS CLI v2.
-- Install Terraform.
-- Confirm account identity with `aws sts get-caller-identity`.
-- Use `ap-south-1`.
-- Add AWS budget alert manually in console before creating resources.
+1. SQS
+2. SNS
+3. S3
+4. Lambda
 
-Free-tier posture:
+Why this order:
 
-- Avoid EKS, MSK, NAT Gateway, Aurora by default.
-- Prefer local Kafka over MSK.
-- Prefer EC2 Docker Compose before Kubernetes-on-EC2.
-- Use tiny S3/SQS/SNS/Lambda examples.
+- SQS is simple and useful
+- SNS introduces pub-sub
+- S3 introduces storage
+- Lambda introduces event-driven serverless compute
 
-Adjusted sequence for this project:
+### Step 5: Introduce Terraform
 
-- deploy to EC2 first with a reduced stack
-- add SQS, SNS, S3, and Lambda iteratively after deployment is healthy
+Why after the basics are clear:
 
-### 7. AWS Service Integrations
+- Terraform is easier to understand once you already know the AWS resources manually
+- otherwise you are learning AWS and Terraform at the same time
 
-Goal: connect the local event system to low-cost AWS services.
+Good candidates for first Terraform resources:
 
-Implementation order:
+- RDS
+- SQS
+- SNS
+- S3
+- IAM policies related to those services
 
-1. SQS queue for selected events.
-2. SNS topic for notifications.
-3. S3 bucket for tiny archived event payloads.
-4. Lambda function that reads from SQS and writes to S3.
+## 4. A Practical Learning Sequence
 
-Learning flow:
+If the goal is to keep learning smooth and not overwhelming, this is the best sequence:
 
-```text
-Kafka consumer -> SQS -> Lambda -> S3
-                         -> SNS
-```
+1. understand the current local + CI/CD + EC2 setup deeply
+2. move Postgres to RDS
+3. tighten security groups
+4. add SQS from application or worker code
+5. add SNS
+6. add S3
+7. add Lambda
+8. automate those AWS resources with Terraform
 
-### 8. EC2 Docker Compose Deployment
+## 5. What We Are Not Prioritizing Yet
 
-Goal: run the service on a Free Tier-compatible EC2 path.
+These are intentionally not the immediate next steps:
 
-Implementation:
+- Kubernetes on AWS
+- MSK
+- EKS
+- Aurora
+- large-scale observability stack
 
-- Build Docker images.
-- Create EC2 instance.
-- Install Docker and Docker Compose plugin.
-- Copy deployment Compose file and env file.
-- Start API, worker, consumer, Redis, and optionally Postgres.
+Why:
 
-Important decision:
+- they add complexity fast
+- they are less Free Tier-friendly
+- they are not necessary yet to understand the core backend infra path
 
-- For first EC2 deployment, keep Kafka local-only or run a reduced event stack on EC2 depending on instance capacity.
-- Kafka can be memory-heavy for tiny EC2 instances, so we should introduce it carefully.
+## 6. Short Version
 
-Current recommendation:
+The project has already crossed the first major infra milestone.
 
-- deploy `api + celery-worker + postgres + redis` first
-- keep Kafka and Debezium local during the first EC2 deployment
+So the next roadmap is:
 
-Current status:
-
-- manual EC2 deployment works
-- next step is GitHub Actions CD for EC2
-
-### 9. Traffic Simulation
-
-Goal: simulate realistic traffic without high cost.
-
-Implementation:
-
-- Add a lightweight script that sends order events and direct Kafka events.
-- Run locally first.
-- Run against EC2 API later.
-- Observe API logs, Celery logs, Kafka consumer logs, and resource usage.
-
-## Recommended Immediate Sequence
-
-1. Verify the full containerized local app stack.
-2. Launch a Free Tier-conscious EC2 instance.
-3. Deploy the reduced Docker Compose stack to EC2.
-4. Add and verify CD workflow for EC2 deployment.
-5. Add AWS SQS/SNS/S3/Lambda integrations iteratively.
+1. separate DB from app VM
+2. tighten security
+3. improve CD discipline
+4. add AWS services one by one
+5. automate cloud resources with Terraform
