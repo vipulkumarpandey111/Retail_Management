@@ -179,13 +179,49 @@ docker logs retailflow-celery-worker
 
 Only after the manual EC2 deployment is healthy should we automate it.
 
-The future CD workflow should:
+The current CD workflow now does this:
 
 - trigger manually first
-- later optionally trigger on push to `main`
+- accept a branch input
 - SSH into EC2
+- `git fetch`
+- `git checkout <branch>`
 - `git pull`
-- run `docker compose -f infra/docker-compose/docker-compose.ec2.yml up -d --build`
+- run `bash scripts/aws/deploy-ec2.sh`
+- run an external `/health/` check from GitHub Actions
+
+### 10. GitHub Secrets Required For CD
+
+Create these repository secrets in GitHub:
+
+- `EC2_HOST`
+  - example: `52.66.235.103`
+- `EC2_USER`
+  - example: `ubuntu`
+- `EC2_APP_DIR`
+  - example: `/home/ubuntu/Retail_Management`
+- `EC2_SSH_PRIVATE_KEY`
+  - the full contents of your `.pem` private key
+- `DEPLOY_HEALTHCHECK_HOST`
+  - example: `52.66.235.103`
+
+### 11. How To Run CD
+
+In GitHub:
+
+1. Open the repo
+2. Go to `Actions`
+3. Open `Deploy Dev`
+4. Click `Run workflow`
+5. Keep `main` as the branch for now
+6. Run the workflow
+
+If successful, the workflow:
+
+- connects to EC2
+- updates the checked-out repo
+- rebuilds and restarts the reduced stack
+- confirms `/health/` returns success
 
 ## Project Steps I Am Taking Next
 
@@ -195,7 +231,8 @@ The repo is now prepared with:
 - `infra/ec2/.env.ec2.example`
 - `scripts/aws/ec2-bootstrap.sh`
 - `scripts/aws/deploy-ec2.sh`
+- `.github/workflows/deploy-dev.yml`
 
 The next code step after this should be:
 
-- convert the placeholder deployment workflow into a real EC2 deployment pipeline after your instance exists
+- move PostgreSQL from EC2 container to RDS after the CD workflow is verified

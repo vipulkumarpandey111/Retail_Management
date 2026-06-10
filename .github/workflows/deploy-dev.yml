@@ -2,10 +2,47 @@ name: Deploy Dev
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy on EC2
+        required: true
+        default: main
 
 jobs:
-  gate:
+  deploy-ec2:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Deployment is intentionally manual until AWS account, region, and cluster target are confirmed."
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
+      - name: Start SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+
+      - name: Add EC2 host to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on EC2
+        env:
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_APP_DIR: ${{ secrets.EC2_APP_DIR }}
+          DEPLOY_BRANCH: ${{ github.event.inputs.branch }}
+        run: |
+          ssh "${EC2_USER}@${EC2_HOST}" "
+            set -euo pipefail
+            cd '${EC2_APP_DIR}'
+            git fetch origin
+            git checkout '${DEPLOY_BRANCH}'
+            git pull origin '${DEPLOY_BRANCH}'
+            bash scripts/aws/deploy-ec2.sh '${EC2_APP_DIR}'
+          "
+
+      - name: Verify deployment health
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HEALTHCHECK_HOST }}
+        run: |
+          curl --fail --retry 10 --retry-delay 5 "http://${DEPLOY_HOST}:8000/health/"

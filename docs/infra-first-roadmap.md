@@ -170,6 +170,11 @@ Current recommendation:
 - deploy `api + celery-worker + postgres + redis` first
 - keep Kafka and Debezium local during the first EC2 deployment
 
+Current status:
+
+- manual EC2 deployment works
+- next step is GitHub Actions CD for EC2
+
 ### 9. Traffic Simulation
 
 Goal: simulate realistic traffic without high cost.
@@ -186,5 +191,5 @@ Implementation:
 1. Verify the full containerized local app stack.
 2. Launch a Free Tier-conscious EC2 instance.
 3. Deploy the reduced Docker Compose stack to EC2.
-4. Add CD workflow for EC2 deployment.
+4. Add and verify CD workflow for EC2 deployment.
 5. Add AWS SQS/SNS/S3/Lambda integrations iteratively.
