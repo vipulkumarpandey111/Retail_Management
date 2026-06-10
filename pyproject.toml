@@ -10,3 +10,5 @@ select = ["E", "F", "I"]
 DJANGO_SETTINGS_MODULE = "retailflow.settings"
 pythonpath = ["backend"]
 testpaths = ["backend"]
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+python_classes = ["Test*", "*Tests"]
