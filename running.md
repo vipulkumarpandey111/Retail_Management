@@ -477,3 +477,22 @@ GitHub Actions now checks:
 - `pytest`
 - `docker build -t retailflow-api:ci backend`
 - `docker build -t retailflow-kafka-consumer:ci workers/kafka_consumer`
+
+## 17. EC2 CD Verification
+
+The `Deploy Dev` GitHub Actions workflow now verifies application health from inside the EC2 instance over SSH instead of curling the public IP from the GitHub runner.
+
+Why this is better for the current setup:
+
+- It avoids false negatives caused by security-group differences between your laptop and GitHub-hosted runners.
+- It checks whether the app is actually healthy on the VM after deployment.
+- It keeps the deployment verification closer to the service itself.
+
+Current workflow behavior:
+
+1. SSH into EC2
+2. Pull the selected branch
+3. Run `bash scripts/aws/deploy-ec2.sh`
+4. Retry `curl http://localhost:8000/health/` on the EC2 host up to 12 times with a 5 second delay
+
+If the workflow fails in the health step now, it usually means the API container itself did not come up cleanly, not just that the public port was unreachable from GitHub Actions.
