@@ -48,6 +48,9 @@ KAFKA_BOOTSTRAP_SERVERS=localhost:9092
 KAFKA_DIRECT_TOPIC=retailflow.direct.order_signals
 KAFKA_PARTITION_DEMO_TOPIC=retailflow.direct.order_signals.partitioned
 KAFKA_CONSUMER_TOPICS=retailflow.public.orders_order,retailflow.direct.order_signals,retailflow.direct.order_signals.partitioned
+AWS_REGION=ap-south-1
+AWS_SQS_QUEUE_URL=
+AWS_SNS_TOPIC_ARN=
 ```
 
 PostgreSQL uses host port `5433` to avoid conflict with any local database already using `5432`.
@@ -362,6 +365,188 @@ The API response includes Kafka delivery metadata:
 ```
 
 The exact partition can differ. The important rule is: the same key should map to the same partition while the topic partition count remains unchanged.
+
+### Simulate Different Producers
+
+You can also tag messages as if they came from different producer instances:
+
+```powershell
+$body = @{
+  topic = "retailflow.direct.order_signals.partitioned"
+  event_type = "order.signal.created"
+  producer_id = "producer-a"
+  partition_key_strategy = "order_id"
+  payload = @{
+    order_id = 201
+    store_code = "BLR-001"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/direct-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Then repeat with:
+
+```text
+producer-b
+producer-c
+```
+
+These producers can all publish to the same topic. Kafka will still assign partitions by key, not by the producer name.
+
+## 11A. Multi-Partition and Multi-Consumer-Group Demo
+
+This project now includes a helper script to run consumers with explicit:
+
+- group id
+- consumer name
+- topic list
+
+Script:
+
+```powershell
+.\scripts\kafka\run-consumer-group.ps1 <group-id> <consumer-name> <topics>
+```
+
+### Same Group Demo
+
+Open terminal 1:
+
+```powershell
+.\scripts\kafka\run-consumer-group.ps1 retailflow-demo-group-a consumer-a1 retailflow.direct.order_signals.partitioned
+```
+
+Open terminal 2:
+
+```powershell
+.\scripts\kafka\run-consumer-group.ps1 retailflow-demo-group-a consumer-a2 retailflow.direct.order_signals.partitioned
+```
+
+Meaning:
+
+- both consumers belong to the same group
+- Kafka divides partitions among group members
+- one message is processed by one member of that group, not both
+
+### Different Group Demo
+
+Open terminal 3:
+
+```powershell
+.\scripts\kafka\run-consumer-group.ps1 retailflow-demo-group-b consumer-b1 retailflow.direct.order_signals.partitioned
+```
+
+Meaning:
+
+- `retailflow-demo-group-b` is a different group from `retailflow-demo-group-a`
+- this new group gets its own independent view of the same topic
+- both groups can consume the same topic without interfering with each other
+
+What to observe in the logs:
+
+- `consumer_group`
+- `consumer_name`
+- `partition`
+- `offset`
+- `key`
+
+Expected learning:
+
+- same key usually lands on the same partition
+- consumers in the same group share partitions
+- different groups each receive the topic independently
+
+## 11B. AWS Messaging Sample Endpoints
+
+The project now includes sample AWS integration endpoints for:
+
+- SQS publish
+- SNS publish
+- AWS config probe
+
+These are learning-focused integrations so you can understand code-to-AWS wiring before full Terraform automation.
+
+### Check AWS Config Wiring
+
+```powershell
+Invoke-RestMethod "http://localhost:8000/api/events/aws-config-probe/"
+```
+
+Expected response includes:
+
+- `aws_region`
+- `sqs_configured`
+- `sns_configured`
+
+### Publish Sample Message to SQS
+
+Set `AWS_SQS_QUEUE_URL` in `.env` first.
+
+Then run:
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  payload = @{
+    order_id = 301
+    store_code = "BLR-001"
+    channel = "sqs-demo"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/aws-sqs-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Optional FIFO queue note:
+
+- if you use an SQS FIFO queue, pass `message_group_id`
+
+### Publish Sample Message to SNS
+
+Set `AWS_SNS_TOPIC_ARN` in `.env` first.
+
+Then run:
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  payload = @{
+    order_id = 302
+    store_code = "BLR-001"
+    channel = "sns-demo"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:8000/api/events/aws-sns-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+### Lambda Sample Included in Repo
+
+A sample Lambda handler now exists at:
+
+```text
+lambda/order_signal_notifier/handler.py
+```
+
+Current sample flow:
+
+```text
+SQS event -> Lambda handler -> optional SNS publish
+```
+
+The handler is meant to help you understand how an AWS event payload can be transformed inside Lambda. It is not deployed yet in this phase.
 
 ## 12. Verify CDC Pipeline
 

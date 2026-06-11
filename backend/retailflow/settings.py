@@ -104,3 +104,10 @@ CELERY_TASK_TIME_LIMIT = 300
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 KAFKA_DIRECT_TOPIC = os.getenv("KAFKA_DIRECT_TOPIC", "retailflow.direct.order_signals")
+KAFKA_PARTITION_DEMO_TOPIC = os.getenv(
+    "KAFKA_PARTITION_DEMO_TOPIC", "retailflow.direct.order_signals.partitioned"
+)
+
+AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
+AWS_SQS_QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL", "")
+AWS_SNS_TOPIC_ARN = os.getenv("AWS_SNS_TOPIC_ARN", "")

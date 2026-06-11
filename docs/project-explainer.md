@@ -28,6 +28,8 @@ We already have:
 - a reduced Docker Compose deployment on EC2
 - GitHub Actions CI
 - GitHub Actions CD
+- sample AWS messaging integration points for SQS and SNS
+- a sample Lambda handler for learning event-driven AWS flow
 
 So this is no longer just a local backend codebase. It is now a backend system that can:
 
@@ -348,6 +350,29 @@ Main support files:
 - [scripts/aws/ec2-bootstrap.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\ec2-bootstrap.sh)
 - [scripts/aws/deploy-ec2.sh](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\scripts\aws\deploy-ec2.sh)
 - [infra/ec2/.env.ec2.example](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\infra\ec2\.env.ec2.example)
+
+### AWS Sample Messaging Integrations
+
+We have now added small code-level AWS integration points before moving to RDS or Terraform-heavy provisioning.
+
+What exists:
+
+- Django endpoint to publish to SQS
+- Django endpoint to publish to SNS
+- config probe endpoint to verify AWS env wiring
+- sample Lambda handler in the repo for an `SQS -> Lambda -> SNS` learning flow
+
+Why this was added now:
+
+- it helps you understand application-to-AWS integration before bigger infra separation work
+- it keeps the AWS learning loop small and concrete
+- it avoids mixing too many new concepts at once
+
+Main files:
+
+- [backend/apps/events/aws_messaging.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\aws_messaging.py)
+- [backend/apps/events/views.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\views.py)
+- [lambda/order_signal_notifier/handler.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\lambda\order_signal_notifier\handler.py)
 
 ## 6. The Files to Study First
 

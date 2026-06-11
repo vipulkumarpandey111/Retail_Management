@@ -25,6 +25,7 @@ def publish_direct_event(
     partition_key_strategy="event_type",
     custom_key=None,
     topic=None,
+    producer_id=None,
 ):
     producer = Producer({"bootstrap.servers": settings.KAFKA_BOOTSTRAP_SERVERS})
     target_topic = topic or settings.KAFKA_DIRECT_TOPIC
@@ -32,7 +33,7 @@ def publish_direct_event(
     message = {
         "event_type": event_type,
         "payload": payload,
-        "source": "django-api-direct-producer",
+        "source": producer_id or "django-api-direct-producer",
         "partition_key_strategy": partition_key_strategy,
         "partition_key": partition_key,
     }

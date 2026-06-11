@@ -56,6 +56,8 @@ def build_message_output(message, payload):
     topic = message.topic()
     classification = classify_topic(topic)
     output = {
+        "consumer_group": os.getenv("KAFKA_GROUP_ID", "retailflow-order-consumer"),
+        "consumer_name": os.getenv("KAFKA_CONSUMER_NAME", "consumer-1"),
         "classification": classification,
         "topic": topic,
         "partition": message.partition(),
