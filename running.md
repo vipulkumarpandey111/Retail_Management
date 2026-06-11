@@ -2,6 +2,10 @@
 
 This is the canonical step-by-step runbook for starting and verifying the project locally. Keep this file updated whenever infrastructure, ports, services, scripts, or run commands change.
 
+For the broader learning path from code to deployment and Kubernetes concepts, also read:
+
+- [docs/kubernetes-and-delivery-guide.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\kubernetes-and-delivery-guide.md)
+
 ## 1. Prerequisites
 
 Install or confirm:

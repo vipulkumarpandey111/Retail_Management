@@ -77,14 +77,16 @@ Read these in this order:
 1. [README.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\README.md)
 2. [running.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\running.md)
 3. [docs/project-explainer.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\project-explainer.md)
-4. [docs/ec2-deployment-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\ec2-deployment-roadmap.md)
-5. [docs/infra-first-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\infra-first-roadmap.md)
+4. [docs/kubernetes-and-delivery-guide.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\kubernetes-and-delivery-guide.md)
+5. [docs/ec2-deployment-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\ec2-deployment-roadmap.md)
+6. [docs/infra-first-roadmap.md](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\docs\infra-first-roadmap.md)
 
 Use them like this:
 
 - `README.md`: high-level status and repo map
 - `running.md`: operational runbook
 - `project-explainer.md`: top-down infra understanding
+- `kubernetes-and-delivery-guide.md`: code-to-runtime path and Kubernetes mental model
 - `ec2-deployment-roadmap.md`: EC2 and CD deployment path
 - `infra-first-roadmap.md`: what we should build next and in what order
 
