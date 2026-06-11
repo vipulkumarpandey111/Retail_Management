@@ -543,10 +543,32 @@ lambda/order_signal_notifier/handler.py
 Current sample flow:
 
 ```text
-SQS event -> Lambda handler -> optional SNS publish
+SQS event -> Lambda handler -> CloudWatch Logs
 ```
 
-The handler is meant to help you understand how an AWS event payload can be transformed inside Lambda. It is not deployed yet in this phase.
+The Phase 1 Lambda behavior is intentionally simple:
+
+- Lambda is triggered by SQS
+- Lambda logs the incoming message to CloudWatch
+- Lambda does not publish to SNS yet
+
+If you created the Lambda in AWS using the default file name `lambda_function.py`, paste the contents of `lambda/order_signal_notifier/handler.py` into that file and keep the default handler name:
+
+```text
+lambda_function.lambda_handler
+```
+
+### Phase 1 Verification Flow
+
+After the SQS trigger is attached to Lambda and `AWS_SQS_QUEUE_URL` is configured locally:
+
+1. Start your local Django API
+2. Call `GET /api/events/aws-config-probe/`
+3. Call `POST /api/events/aws-sqs-publish/`
+4. Open the Lambda function in AWS
+5. Go to `Monitor`
+6. Open CloudWatch logs
+7. Verify the message body was logged by Lambda
 
 ## 12. Verify CDC Pipeline
 

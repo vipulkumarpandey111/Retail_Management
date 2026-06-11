@@ -29,7 +29,7 @@ We already have:
 - GitHub Actions CI
 - GitHub Actions CD
 - sample AWS messaging integration points for SQS and SNS
-- a sample Lambda handler for learning event-driven AWS flow
+- a sample Lambda handler for Phase 1 `SQS -> Lambda -> CloudWatch Logs`
 
 So this is no longer just a local backend codebase. It is now a backend system that can:
 
@@ -360,7 +360,7 @@ What exists:
 - Django endpoint to publish to SQS
 - Django endpoint to publish to SNS
 - config probe endpoint to verify AWS env wiring
-- sample Lambda handler in the repo for an `SQS -> Lambda -> SNS` learning flow
+- sample Lambda handler in the repo for a Phase 1 `SQS -> Lambda -> CloudWatch Logs` flow
 
 Why this was added now:
 

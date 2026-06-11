@@ -25,7 +25,7 @@ Current working capabilities:
 - Celery worker processing async order work
 - Direct Kafka publishing from Django
 - Sample SQS and SNS publishing from Django
-- Sample Lambda handler for `SQS -> Lambda -> SNS` learning flow
+- Sample Lambda handler for `SQS -> Lambda -> CloudWatch Logs` learning flow
 - Debezium CDC from PostgreSQL into Kafka
 - Kafka consumer that classifies direct events vs CDC events
 - Full local Docker Compose stack for infra + app services
