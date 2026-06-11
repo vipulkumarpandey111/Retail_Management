@@ -26,6 +26,7 @@ Current working capabilities:
 - Direct Kafka publishing from Django
 - Sample SQS and SNS publishing from Django
 - Sample Lambda handler for `SQS -> Lambda -> CloudWatch Logs` learning flow
+- End-to-end Phase 1 AWS flow verified: `Django -> SQS -> Lambda -> CloudWatch Logs`
 - Debezium CDC from PostgreSQL into Kafka
 - Kafka consumer that classifies direct events vs CDC events
 - Full local Docker Compose stack for infra + app services
@@ -177,11 +178,29 @@ The current deployment path is aligned with AWS Free Tier thinking:
 
 Best next order from here:
 
-1. move PostgreSQL from EC2 container to RDS
+1. decide whether to deepen AWS messaging first or move PostgreSQL from EC2 container to RDS
 2. tighten security groups and deployment exposure
 3. improve CD with branch/environment discipline
-4. add small AWS service integrations like SQS, SNS, S3, or Lambda
-5. later decide whether Terraform should manage those cloud resources
+4. add the next AWS step such as SNS fan-out, S3, or Lambda expansion
+5. introduce Terraform once the manual AWS shape is understood well
+
+## Boto3 vs Terraform
+
+This project now uses a very common split:
+
+- `boto3` is for **using AWS services from application code**
+- Terraform is for **creating and managing AWS infrastructure**
+
+Examples in this project:
+
+- Django uses `boto3` when it sends a message to an existing SQS queue
+- Lambda can use `boto3` later if it needs to publish to SNS or write to S3
+- Terraform would be the tool to create the SQS queue, SNS topic, Lambda function, IAM roles, or RDS instance in a repeatable way
+
+Simple rule:
+
+- if your app is **calling** an AWS service at runtime, think `boto3`
+- if you are **provisioning** an AWS resource, think Terraform
 
 ## Quick Repo Description
 

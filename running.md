@@ -481,6 +481,15 @@ Expected response includes:
 - `aws_region`
 - `sqs_configured`
 - `sns_configured`
+- `aws_sdk_diagnostics`
+
+`aws_sdk_diagnostics` helps you confirm what the running Django process actually sees:
+
+- whether `AWS_ACCESS_KEY_ID` is configured
+- whether `AWS_SECRET_ACCESS_KEY` is configured
+- whether region is configured
+- whether `AWS_EC2_METADATA_DISABLED` is set
+- whether proxy environment variables are present
 
 ### Publish Sample Message to SQS
 
@@ -569,6 +578,27 @@ After the SQS trigger is attached to Lambda and `AWS_SQS_QUEUE_URL` is configure
 5. Go to `Monitor`
 6. Open CloudWatch logs
 7. Verify the message body was logged by Lambda
+
+What this proves:
+
+- Django can use `boto3` to talk to AWS
+- the SQS queue already exists and is reachable
+- Lambda was created and wired as an SQS consumer
+- CloudWatch Logs shows the Lambda runtime behavior
+
+### Boto3 vs Terraform
+
+In this project:
+
+- `boto3` is used from Python code to talk to AWS services that already exist
+- Terraform will be used later to create and manage AWS infrastructure in a repeatable way
+
+Examples:
+
+- send a message to an existing SQS queue -> `boto3`
+- create the SQS queue itself -> Terraform
+- publish to an existing SNS topic -> `boto3`
+- create the SNS topic and Lambda wiring -> Terraform
 
 ## 12. Verify CDC Pipeline
 

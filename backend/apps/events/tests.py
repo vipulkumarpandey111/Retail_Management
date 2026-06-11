@@ -95,6 +95,7 @@ class AwsMessagingViewTests(SimpleTestCase):
         self.assertIn("aws_region", response.json())
         self.assertIn("sqs_configured", response.json())
         self.assertIn("sns_configured", response.json())
+        self.assertIn("aws_sdk_diagnostics", response.json())
 
     @patch("apps.events.views.publish_sqs_message")
     def test_aws_sqs_publish_returns_accepted(self, publish_sqs_message_mock):

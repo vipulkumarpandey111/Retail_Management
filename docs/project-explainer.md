@@ -374,7 +374,102 @@ Main files:
 - [backend/apps/events/views.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\views.py)
 - [lambda/order_signal_notifier/handler.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\lambda\order_signal_notifier\handler.py)
 
-## 6. The Files to Study First
+What is now verified in practice:
+
+- Django can publish to a real SQS queue
+- SQS can trigger Lambda
+- Lambda can log the received message to CloudWatch
+
+That means the current verified Phase 1 AWS flow is:
+
+```text
+Django -> SQS -> Lambda -> CloudWatch Logs
+```
+
+## 6A. Boto3 vs Terraform
+
+This is one of the most important backend-infra distinctions to understand.
+
+### Boto3
+
+`boto3` is the Python SDK for AWS.
+
+Use it when your application code needs to talk to an AWS service at runtime.
+
+Examples:
+
+- send a message to SQS
+- publish to SNS
+- upload a file to S3
+- read a secret from AWS
+- invoke another AWS API from application code
+
+In this project, `boto3` is used in:
+
+- [backend/apps/events/aws_messaging.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\aws_messaging.py)
+
+That file creates AWS clients and uses them to talk to already-existing AWS resources.
+
+Important idea:
+
+- `boto3` does not mean "create the infrastructure permanently"
+- it usually means "use the infrastructure that already exists"
+
+### Terraform
+
+Terraform is infrastructure as code.
+
+Use it when you want to declare and manage AWS resources themselves.
+
+Examples:
+
+- create an SQS queue
+- create an SNS topic
+- create a Lambda function
+- create IAM roles and policies
+- create RDS
+- create networking resources
+
+Important idea:
+
+- Terraform is not your runtime SDK
+- Terraform is your provisioning and lifecycle management tool
+
+### Simple Practical Rule
+
+If you ask:
+
+"How does my app send a message to SQS?"
+
+the answer is:
+
+- use `boto3`
+
+If you ask:
+
+"How do I create the SQS queue, IAM role, and Lambda in a repeatable way?"
+
+the answer is:
+
+- use Terraform
+
+### In This Project
+
+Current state:
+
+- SQS queue was created manually in AWS Console
+- Lambda was created manually in AWS Console
+- Django uses `boto3` to publish into that queue
+- Lambda was wired to the queue as a trigger in AWS
+
+Future state:
+
+- we can later move queue/topic/lambda/IAM creation into Terraform
+- but the Django code would still use `boto3` at runtime
+
+So these tools are not competing. They work at different layers.
+
+## 6B. The Files to Study First
 
 If you want to understand the project top down, read files in this order:
 
@@ -556,6 +651,47 @@ What CD now does:
 
 This last part matters. We intentionally changed health checking to happen inside EC2 because public-network checks from GitHub-hosted runners were flaky for this setup.
 
+### Step 13: Add Initial AWS Messaging Integration
+
+Why:
+
+- we wanted to understand real AWS service interaction before moving to heavier infra separation like RDS
+- SQS and Lambda are a lightweight way to learn cloud event flow
+
+What we added:
+
+- SQS publish endpoint in Django
+- SNS publish endpoint in Django
+- AWS config probe endpoint in Django
+- sample Lambda handler in the repo
+
+Where:
+
+- [backend/apps/events/aws_messaging.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\aws_messaging.py)
+- [backend/apps/events/views.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\views.py)
+- [backend/apps/events/urls.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\urls.py)
+- [lambda/order_signal_notifier/handler.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\lambda\order_signal_notifier\handler.py)
+
+### Step 14: Add Diagnostics for Local AWS Credential Debugging
+
+Why:
+
+- local AWS SDK behavior can be confusing
+- a running Django process only sees the environment it started with
+- proxy variables and EC2 metadata fallback can make failures noisy
+
+What we added:
+
+- safe `aws_sdk_diagnostics` in the config probe
+- explicit use of environment-based AWS credentials in the sample messaging client
+- IMDS disabled for this local sample path
+- proxy settings ignored for these sample AWS clients
+
+Where:
+
+- [backend/apps/events/aws_messaging.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\aws_messaging.py)
+- [backend/apps/events/views.py](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\backend\apps\events\views.py)
+
 ## 8. Secrets and Why They Matter
 
 This project now uses secrets in two main places:
@@ -723,6 +859,36 @@ bash scripts/aws/deploy-ec2.sh
 Implemented in:
 
 - [.github/workflows/deploy-dev.yml](C:\Users\vipul\OneDrive\Desktop\SelfDev\DevHandsOn\.github\workflows\deploy-dev.yml)
+
+### AWS Phase 1 verification
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8001/api/events/aws-config-probe/"
+```
+
+```powershell
+$body = @{
+  event_type = "order.signal.created"
+  payload = @{
+    order_id = 401
+    store_code = "BLR-001"
+    channel = "sqs-lambda-demo"
+  }
+} | ConvertTo-Json -Depth 5
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://127.0.0.1:8001/api/events/aws-sqs-publish/" `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Then in AWS Console:
+
+- Lambda
+- function
+- Monitor
+- CloudWatch Logs
 
 ## 12. Current V1 Boundaries
 

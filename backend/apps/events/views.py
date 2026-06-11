@@ -4,7 +4,7 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .aws_messaging import publish_sns_message, publish_sqs_message
+from .aws_messaging import get_aws_env_diagnostics, publish_sns_message, publish_sqs_message
 from .kafka import publish_direct_event
 from .serializers import (
     AwsSnsPublishSerializer,
@@ -51,6 +51,7 @@ class AwsConfigProbeView(APIView):
                 "sns_topic_arn_preview": settings.AWS_SNS_TOPIC_ARN[:60]
                 if settings.AWS_SNS_TOPIC_ARN
                 else "",
+                "aws_sdk_diagnostics": get_aws_env_diagnostics(),
                 "purpose": (
                     "Confirms whether AWS messaging env vars are wired "
                     "without exposing full secret values."
