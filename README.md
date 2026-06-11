@@ -86,7 +86,7 @@ Use them like this:
 - `README.md`: high-level status and repo map
 - `running.md`: operational runbook
 - `project-explainer.md`: top-down infra understanding
-- `kubernetes-and-delivery-guide.md`: code-to-runtime path and Kubernetes mental model
+- `kubernetes-and-delivery-guide.md`: SDE 2 service-ownership lifecycle, delivery path, and Kubernetes mental model
 - `ec2-deployment-roadmap.md`: EC2 and CD deployment path
 - `infra-first-roadmap.md`: what we should build next and in what order
 
