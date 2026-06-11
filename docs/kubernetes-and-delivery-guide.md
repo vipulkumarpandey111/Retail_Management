@@ -596,7 +596,284 @@ In this project, the earlier equivalents were:
 
 So the debugging mindset stays the same even when the tooling changes.
 
-## 12. Security And Secrets
+## 12. Common Production Failure Modes For A Microservice Owner
+
+This is the part people usually learn through pain, so it is worth naming explicitly.
+
+As a service owner, many incidents are not caused by "bad code" in the narrow sense. They are often caused by mismatches between code, config, runtime assumptions, traffic shape, or dependencies.
+
+Here are the most common production failure modes you should recognize early.
+
+### 1. Bad Or Missing Configuration
+
+Examples:
+
+- wrong environment variable
+- missing secret
+- wrong queue URL
+- wrong database host
+- wrong feature flag value
+
+Symptoms:
+
+- service boots locally but not in prod
+- deployment succeeds but requests fail
+- one environment works while another breaks
+
+What to learn:
+
+- config is part of the application
+- configuration drift causes real incidents
+- startup validation and config visibility are extremely valuable
+
+### 2. Dependency Outage Or Dependency Slowness
+
+Examples:
+
+- DB is slow
+- Redis is down
+- Kafka broker is unavailable
+- third-party API is timing out
+
+Symptoms:
+
+- latency spike
+- error spike
+- thread or worker exhaustion
+- queue backlog
+
+What to learn:
+
+- your service is only as healthy as its dependencies
+- timeouts, retries, circuit breaking, and graceful degradation matter
+- not every failure should cascade
+
+### 3. Bad Deployment
+
+Examples:
+
+- image built correctly but wrong config injected
+- code starts but readiness was wrong
+- migration incompatible with old app version
+- deployment rolled out but traffic broke immediately
+
+Symptoms:
+
+- issue starts right after deploy
+- old version was healthy
+- rollback fixes the issue
+
+What to learn:
+
+- correlate incidents with deploy time first
+- deployment safety is part of software design
+- backward compatibility matters during rolling deploys
+
+### 4. Database Migration Problems
+
+Examples:
+
+- migration locks a hot table
+- new code expects a column before migration is complete
+- old code and new schema are briefly incompatible
+
+Symptoms:
+
+- deploy appears fine, then DB errors start
+- elevated latency during migration window
+- partial failure across app instances
+
+What to learn:
+
+- schema changes are production events
+- safe migrations often need multi-step rollout thinking
+- "expand then migrate then contract" is a common mature pattern
+
+### 5. Queue Backlog Or Stuck Consumers
+
+Examples:
+
+- worker is down
+- consumer is too slow
+- retries keep reprocessing poison messages
+- throughput is lower than incoming event volume
+
+Symptoms:
+
+- messages pile up
+- user-visible delay increases
+- duplicate processing risk rises
+
+What to learn:
+
+- asynchronous systems hide failures until backlog grows
+- queue depth and consumer lag should be observable
+- dead-letter queues and idempotent consumers matter
+
+### 6. Traffic Spike Or Thundering Herd
+
+Examples:
+
+- sudden product launch traffic
+- retry storm from another system
+- many clients refreshing the same expensive endpoint
+
+Symptoms:
+
+- CPU spikes
+- latency jumps
+- autoscaling lags behind demand
+- DB or cache gets hammered
+
+What to learn:
+
+- not all incidents are code regressions
+- caching, rate limiting, backpressure, and load shedding become important
+- scaling strategy must match traffic shape
+
+### 7. Memory Leak Or Resource Exhaustion
+
+Examples:
+
+- process memory grows over time
+- too many connections stay open
+- file descriptors or sockets get exhausted
+- worker concurrency is misconfigured
+
+Symptoms:
+
+- service degrades after running for a while
+- periodic restarts appear to "fix" it temporarily
+- OOM kills or container restarts happen
+
+What to learn:
+
+- some issues are lifecycle issues, not request-level bugs
+- resource limits and observability are critical
+- restart patterns can hide root causes if you do not investigate them
+
+### 8. Bad Caching Behavior
+
+Examples:
+
+- stale data served too long
+- cache key mistake returns wrong user data
+- cache stampede on expiration
+- cache outage causes DB overload
+
+Symptoms:
+
+- confusing correctness bugs
+- sudden DB load increase after cache miss wave
+- hard-to-reproduce behavior across instances
+
+What to learn:
+
+- cache correctness matters as much as cache speed
+- TTL, invalidation, and fallback behavior should be intentional
+
+### 9. Partitioning And Ordering Assumptions Break
+
+Examples:
+
+- team assumes Kafka ordering is global
+- multiple consumers process related events out of expected sequence
+- key strategy sends related messages to different partitions
+
+Symptoms:
+
+- "random" state inconsistencies
+- hard-to-debug event sequencing problems
+
+What to learn:
+
+- ordering is usually scoped, not universal
+- event key design affects system behavior
+- distributed systems punish vague assumptions
+
+### 10. Secret Or IAM Misconfiguration
+
+Examples:
+
+- app has AWS credentials locally but not in deployed environment
+- IAM policy allows read but not publish
+- secret rotated but service not refreshed
+
+Symptoms:
+
+- code works in one environment only
+- SDK calls fail at runtime
+- permissions errors appear after otherwise healthy deploys
+
+What to learn:
+
+- authentication success and authorization success are different things
+- secret injection path must be understood end to end
+
+### 11. Insufficient Observability
+
+Examples:
+
+- errors exist but logs lack request context
+- metrics do not distinguish dependency latency from app latency
+- no alerting on queue lag or deploy failure
+
+Symptoms:
+
+- incident exists, but diagnosis is slow
+- team guesses instead of knowing
+- rollback/recovery takes longer than necessary
+
+What to learn:
+
+- observability is not an optional nice-to-have
+- missing visibility is itself a production risk
+
+### 12. Security Exposure That Stayed Around Too Long
+
+Examples:
+
+- dev-friendly public ports never got tightened
+- overly broad IAM role remained in place
+- debug endpoint remained reachable
+
+Symptoms:
+
+- no immediate bug, but real risk accumulates
+- audit or incident review exposes preventable gaps
+
+What to learn:
+
+- temporary shortcuts have a habit of becoming permanent
+- security debt is still engineering debt
+
+### How To Think During An Incident
+
+When something breaks in production, the fastest useful questions are usually:
+
+1. What changed recently: code, config, deploy, traffic, or dependency state?
+2. Is the whole service unhealthy or only one path?
+3. Is the service itself failing, or is a dependency failing underneath it?
+4. Did request rate, queue depth, consumer lag, or latency change sharply?
+5. Is rollback the safest immediate move?
+
+That is a much better starting point than diving straight into code and hoping something obvious appears.
+
+### The Real Lesson
+
+A mature service owner learns to think in layers:
+
+- code
+- config
+- runtime
+- dependency health
+- deployment timing
+- traffic behavior
+- observability quality
+
+Most real incidents live in the interaction between those layers.
+
+## 13. Security And Secrets
 
 Security for service ownership is usually about reducing avoidable risk.
 
@@ -622,7 +899,7 @@ The mature pattern is:
 - scope permissions tightly
 - rotate them when needed
 
-## 13. Terraform Vs Runtime SDKs Like boto3
+## 14. Terraform Vs Runtime SDKs Like boto3
 
 This distinction is worth learning early.
 
@@ -669,7 +946,7 @@ In this repo, the concrete examples are:
 - Python uses `boto3` for AWS runtime calls
 - future Terraform can manage the AWS resources themselves
 
-## 14. What You Should Know Next If You Join An Early Startup As SDE 2
+## 15. What You Should Know Next If You Join An Early Startup As SDE 2
 
 You do not need perfect depth in all infra topics on day one.
 
@@ -694,7 +971,7 @@ You do not need to immediately master:
 
 That can come later.
 
-## 15. Where This Repo Helps Concretely
+## 16. Where This Repo Helps Concretely
 
 This project is still useful as a reference because it gives you working examples of:
 
@@ -719,7 +996,7 @@ Useful repo anchors:
 
 Treat those as examples, not as the main point of this guide.
 
-## 16. Final Mental Model
+## 17. Final Mental Model
 
 The best short summary is:
 
